@@ -61,7 +61,8 @@ public static class WorkFactors
 
     public static bool CheckPassword(string? password)
     {
-        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes("prepack-admin:" + (password ?? ""))));
+        // Trim: spaces from copy-paste should not make a correct password fail.
+        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes("prepack-admin:" + (password ?? "").Trim())));
         return CryptographicOperations.FixedTimeEquals(
             Encoding.ASCII.GetBytes(hash.ToLowerInvariant()), Encoding.ASCII.GetBytes(AdminHash));
     }

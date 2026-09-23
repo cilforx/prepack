@@ -19,6 +19,10 @@ public sealed class MainForm : Form
         MinimumSize = new Size(960, 640);
         StartPosition = FormStartPosition.CenterScreen;
         AutoScaleMode = AutoScaleMode.Dpi;
+        using (var ico = WebAssets.Open("app.ico"))
+        {
+            if (ico != null) Icon = new Icon(ico);
+        }
         Controls.Add(_webView);
     }
 
@@ -52,6 +56,11 @@ public sealed class MainForm : Form
         _bridge = new WebBridge(this, wv);
         wv.AddHostObjectToScript("bridge", _bridge);
 
+        // Screen zoom remembered per machine (⚙ → การแสดงผล, or Ctrl + mouse wheel). Printing is not affected.
+        _webView.ZoomFactor = _bridge.UiZoomPercent / 100.0;
+        _bridge.ApplyZoom = f => _webView.ZoomFactor = f;
+        _webView.ZoomFactorChanged += (_, _) => _bridge.RememberZoom(_webView.ZoomFactor);
+
         wv.Settings.IsStatusBarEnabled = false;
         wv.Settings.AreDefaultContextMenusEnabled = false;
 #if DEBUG
@@ -77,6 +86,14 @@ public sealed class MainForm : Form
         {
             _bridge!.PdfSinkPath = full;
             await Task.Delay(1500); // let init() finish
+            // Init reads the local SQLite database; if that (or anything else in start-up) failed, stop here.
+            if (await wv.ExecuteScriptAsync("app.config !== null") != "true")
+            {
+                var err = await wv.ExecuteScriptAsync("document.getElementById('msg').textContent");
+                await File.WriteAllTextAsync(full + ".txt", "INIT FAILED: " + err);
+                exitCode = 3;
+                return;
+            }
             await wv.ExecuteScriptAsync("doPrint(true)");
             var msg = "";
             for (var i = 0; i < 100; i++) // up to 20 s
@@ -86,7 +103,10 @@ public sealed class MainForm : Form
                     await wv.ExecuteScriptAsync("document.getElementById('msg').textContent")) ?? "";
                 if (msg.Length > 0 && !msg.StartsWith("กำลังพิมพ์", StringComparison.Ordinal)) break;
             }
-            await File.WriteAllTextAsync(full + ".txt", msg);
+            var staffCount = await wv.ExecuteScriptAsync("app.staff.length");
+            var fonts = await wv.ExecuteScriptAsync(
+                "[...document.fonts].filter(f => f.status === 'loaded').map(f => f.family).join(',')");
+            await File.WriteAllTextAsync(full + ".txt", msg + "\nstaff=" + staffCount + "\nfonts=" + fonts);
             exitCode = File.Exists(full) && msg.StartsWith("พิมพ์ทดสอบแล้ว", StringComparison.Ordinal) ? 0 : 2;
         }
         finally

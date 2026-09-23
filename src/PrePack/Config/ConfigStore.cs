@@ -58,6 +58,14 @@ internal static class ConfigStore
         JsonSerializer.Deserialize<AppConfig>(WebAssets.ReadText("seed-config.json"), Json)
         ?? throw new InvalidOperationException("seed-config.json is invalid");
 
+    /// <summary>Initial staff names from seed-config.json "staff" (kept out of AppConfig/config.json).</summary>
+    public static List<string> SeedStaffNames() =>
+        (System.Text.Json.Nodes.JsonNode.Parse(WebAssets.ReadText("seed-config.json"))?["staff"]?.AsArray() ?? [])
+            .Select(n => n?.GetValue<string>().Trim() ?? "")
+            .Where(n => n.Length > 0)
+            .Distinct()
+            .ToList();
+
     private static void FirstRun(AppConfig cfg)
     {
         string? Env(string k) => Environment.GetEnvironmentVariable(k) is { Length: > 0 } v ? v : null;

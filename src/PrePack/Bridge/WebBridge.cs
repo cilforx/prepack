@@ -23,82 +23,104 @@ public class WebBridge
     private const int MaxLotLength = 40;
     private const int MaxDrugNameLength = 200;
 
+    private const int ReportLogLimit = 500;
+    private static readonly TimeSpan SyncInterval = TimeSpan.FromMinutes(2);
+
     private readonly Form _owner;
     private readonly CoreWebView2 _wv;
     private AppConfig _cfg;
-    private string? _dbError;
-    private bool _dbReady;
-    private List<Staff> _staff = [];
-    private List<WorkFactor> _factors = [];
-    private bool _cacheLoaded;
+    private readonly LocalDb _local;
+    private readonly SyncService _sync;
+    private readonly System.Threading.Timer _syncTimer;
 
     /// <summary>Self-test only: when set, Print writes this PDF instead of sending to the printer.</summary>
     internal string? PdfSinkPath { get; set; }
+
+    internal const int MinZoomPercent = 50;
+    internal const int MaxZoomPercent = 150;
+
+    /// <summary>Applies a zoom to the WebView2 control (set by MainForm).</summary>
+    internal Action<double>? ApplyZoom { get; set; }
+
+    internal int UiZoomPercent => Math.Clamp(_cfg.UiZoomPercent, MinZoomPercent, MaxZoomPercent);
+
+    /// <summary>Called by MainForm when the zoom changes (settings buttons or Ctrl + mouse wheel) so it is remembered.</summary>
+    internal void RememberZoom(double factor)
+    {
+        var percent = Math.Clamp((int)Math.Round(factor * 100), MinZoomPercent, MaxZoomPercent);
+        if (percent == _cfg.UiZoomPercent) return;
+        _cfg.UiZoomPercent = percent;
+        ConfigStore.Save(_cfg);
+    }
 
     public WebBridge(Form owner, CoreWebView2 wv)
     {
         _owner = owner;
         _wv = wv;
         _cfg = ConfigStore.Load();
+        _local = new LocalDb(AppPaths.LocalDbFile);
+        _local.SeedStaff(ConfigStore.SeedStaffNames());
+        _sync = new SyncService(_local, () => _cfg.MySql);
+        // Background sync; failures back off inside SyncService, so this never slows the UI.
+        _syncTimer = new System.Threading.Timer(_ => SyncInBackground(), null, TimeSpan.FromSeconds(3), SyncInterval);
     }
+
+    private void SyncInBackground() => _ = Task.Run(() => _sync.RunAsync());
 
     // ── Startup ──
 
-    /// <summary>Loads everything the page needs on start, and prepares the database (creates it if missing).</summary>
+    /// <summary>
+    /// Server first: when MySQL is set up and answering, sync before loading so staff / factors are the shared ones.
+    /// Otherwise (not set up, or failed in the last minute) start straight from the local database.
+    /// </summary>
     public async Task<string> Init() => await Run(async () =>
     {
-        await PrepareDatabaseAsync();
+        var online = await _sync.TryNowAsync();
         return new
         {
             today = Today(),
             version = Version(),
             machine = Environment.MachineName,
             config = SafeConfig(),
-            staff = _staff,
-            workFactors = _factors,
-            dbReady = _dbReady,
-            dbError = _dbError,
-            pendingLogs = PendingLogs.Count,
+            staff = _local.ListStaff(),
+            workFactors = _local.GetWorkFactors().Table,
+            online,
+            sync = _sync.Status,
         };
     });
 
-    /// <summary>
-    /// Staff and workload factors are cached after the first successful load, so a MySQL outage
-    /// mid-session does not stop printing — the print log then goes to the local queue instead.
-    /// </summary>
-    private async Task RefreshCacheAsync()
-    {
-        var db = Db();
-        _staff = await db.ListStaffAsync();
-        _factors = await db.ListWorkFactorsAsync();
-        _cacheLoaded = true;
-    }
+    // ── Sync / backup ──
 
-    /// <summary>Creates the PrePack database / tables if needed, then sends any queued print logs.</summary>
-    private async Task PrepareDatabaseAsync()
+    public string SyncStatus() => RunSync(() => _sync.Status);
+
+    /// <summary>Local copy as it is now (no network) — the page refreshes lists after a background sync.</summary>
+    public string Snapshot() => RunSync(() => new
     {
-        _dbReady = false;
-        _dbError = null;
-        var m = _cfg.MySql;
-        if (!m.IsConfigured)
-        {
-            _dbError = "ยังไม่ได้ตั้งค่า MySQL (⚙ → ฐานข้อมูล)";
-            return;
-        }
-        try
-        {
-            await Schema.EnsureAsync(m.Host, m.Port, m.User, ConfigStore.Unprotect(m.PasswordEnc), m.Database);
-            await RefreshCacheAsync();
-            _dbReady = true;
-            await PendingLogs.FlushAsync(Db());
-        }
-        catch (UserError e) { _dbError = e.Message; }
-        catch (Exception e) { _dbError = "เตรียมฐานข้อมูลไม่สำเร็จ: " + e.Message; }
-    }
+        staff = _local.ListStaff(), workFactors = _local.GetWorkFactors().Table, sync = _sync.Status,
+    });
+
+    /// <summary>"Sync ตอนนี้": runs a sync right away (ignoring backoff) and returns fresh local data.</summary>
+    public async Task<string> SyncNow() => await Run(async () =>
+    {
+        if (!_cfg.MySql.IsConfigured) throw new UserError("ยังไม่ได้ตั้งค่า MySQL — ข้อมูลเก็บในเครื่องนี้อยู่แล้ว");
+        await _sync.RunAsync(force: true, wait: true);
+        var status = _sync.Status;
+        if (status.LastError != null) throw new UserError(status.LastError);
+        return new { sync = status, staff = _local.ListStaff(), workFactors = _local.GetWorkFactors().Table };
+    });
+
+    /// <summary>Restore: re-upload every local row (e.g. after the MySQL server was rebuilt).</summary>
+    public async Task<string> ResyncAll() => await Run(async () =>
+    {
+        var queued = _local.ResetSynced();
+        _sync.Reset();
+        await _sync.RunAsync(force: true, wait: true);
+        return new { queued, sync = _sync.Status };
+    });
 
     // ── Settings: MySQL / INVS ──
 
-    /// <summary>Saves MySQL settings and runs the schema function. Empty password keeps the saved one.</summary>
+    /// <summary>Saves MySQL settings, runs the schema function and a first sync. Empty password keeps the saved one.</summary>
     public async Task<string> SaveMySql(string json) => await Run(async () =>
     {
         var j = Parse(json);
@@ -114,12 +136,19 @@ public class WebBridge
         if (!Schema.IsValidDatabaseName(m.Database))
             throw new UserError("ชื่อฐานข้อมูลใช้ได้เฉพาะ A-Z, 0-9 และ _ (ห้ามขึ้นต้นด้วยตัวเลข)");
 
+        // Test + create schema before saving, so a wrong server never replaces a working one.
         var applied = await Schema.EnsureAsync(m.Host, m.Port, m.User, ConfigStore.Unprotect(m.PasswordEnc), m.Database);
         _cfg.MySql = m;
         ConfigStore.Save(_cfg);
-        await PrepareDatabaseAsync();
-        if (!_dbReady) throw new UserError(_dbError ?? "เตรียมฐานข้อมูลไม่สำเร็จ");
-        return new { applied, config = SafeConfig(), staff = _staff, workFactors = _factors };
+        _sync.Reset();
+        await _sync.RunAsync(force: true, wait: true);
+        var status = _sync.Status;
+        if (status.LastError != null) throw new UserError("สร้างตารางแล้ว แต่ sync ไม่สำเร็จ: " + status.LastError);
+        return new
+        {
+            applied, config = SafeConfig(), sync = status,
+            staff = _local.ListStaff(), workFactors = _local.GetWorkFactors().Table,
+        };
     });
 
     public async Task<string> SaveInvs(string json) => await Run(async () =>
@@ -183,6 +212,19 @@ public class WebBridge
 
     public async Task<string> InvsUnitColumns() => await Run(async () => await Invs(_cfg.Invs).UnitColumnCandidatesAsync());
 
+    // ── Settings: screen zoom (this machine only, like BoxBox "ขนาดแสดงผล") ──
+
+    public string GetUiZoom() => RunSync(() => UiZoomPercent);
+
+    public string SetUiZoom(int percent) => RunSync(() =>
+    {
+        if (percent is < MinZoomPercent or > MaxZoomPercent)
+            throw new UserError($"ขนาดแสดงผลต้องอยู่ระหว่าง {MinZoomPercent}-{MaxZoomPercent}%");
+        _owner.Invoke(() => ApplyZoom?.Invoke(percent / 100.0)); // ZoomFactorChanged → RememberZoom saves it
+        RememberZoom(percent / 100.0);
+        return percent;
+    });
+
     // ── Settings: label, printer, drug types ──
 
     public string GetPrinters() => RunSync(() =>
@@ -244,18 +286,28 @@ public class WebBridge
 
     // ── Staff ──
 
-    public async Task<string> ListStaff() => await Run(async () => _staff = await Db().ListStaffAsync());
+    public async Task<string> ListStaff() => await Run(async () =>
+    {
+        await _sync.TryNowAsync();
+        return _local.ListStaff();
+    });
 
+    /// <summary>Written to the local database, then straight to the server if it answers (else on a later sync).</summary>
     public async Task<string> SaveStaff(string json) => await Run(async () =>
     {
         var j = Parse(json);
-        await Db().SaveStaffAsync(new Staff(Int(j, "id", 0), Str(j, "name"), Str(j, "shortName"), Bool(j, "active", true)));
-        return _staff = await Db().ListStaffAsync();
+        _local.SaveStaff(new Staff(Str(j, "uid"), Str(j, "name"), Str(j, "shortName"), Bool(j, "active", true)));
+        var online = await _sync.TryNowAsync();
+        return new { staff = _local.ListStaff(), online, sync = _sync.Status };
     });
 
     // ── Workload factors (password protected) ──
 
-    public async Task<string> GetWorkFactors() => await Run(async () => _factors = await Db().ListWorkFactorsAsync());
+    public async Task<string> GetWorkFactors() => await Run(async () =>
+    {
+        await _sync.TryNowAsync();
+        return _local.GetWorkFactors().Table;
+    });
 
     public string CheckAdminPassword(string password) => RunSync(() =>
         WorkFactors.CheckPassword(password) ? true : throw new UserError("รหัสไม่ถูกต้อง"));
@@ -274,13 +326,15 @@ public class WebBridge
         if (table.Any(f => !types.Contains(f.DrugType))) throw new UserError("ประเภทยาไม่ถูกต้อง");
         if (WorkFactors.Validate(table, types) is { } err) throw new UserError(err);
 
-        await Db().SaveWorkFactorsAsync(table);
-        return _factors = await Db().ListWorkFactorsAsync();
+        // New version stamp → this table wins the next sync (last writer wins across machines).
+        _local.SaveWorkFactors(table, LocalDb.NowUtcSeconds());
+        await _sync.TryNowAsync();
+        return _local.GetWorkFactors().Table;
     });
 
-    public string SetLastStaff(int staffId) => RunSync(() =>
+    public string SetLastStaff(string staffUid) => RunSync(() =>
     {
-        _cfg.LastStaffId = staffId > 0 ? staffId : null;
+        _cfg.LastStaffUid = staffUid;
         ConfigStore.Save(_cfg);
         return true;
     });
@@ -305,17 +359,45 @@ public class WebBridge
     public async Task<string> GetLots(string workingCode) => await Run(async () =>
         await Invs(_cfg.Invs).LotsAsync(workingCode, DateOnly.FromDateTime(DateTime.Today)));
 
+    // ── Short sticker names for long drug names ──
+
+    /// <summary>Saved sticker name for a drug ("" = use the full name). Server first, local fallback.</summary>
+    public async Task<string> GetDrugLabel(string json) => await Run(async () =>
+    {
+        var j = Parse(json);
+        var key = DrugLabels.Key(Str(j, "source"), Str(j, "workingCode"), Str(j, "drugName"));
+        var label = await _sync.GetDrugLabelAsync(key);
+        return new { labelName = label?.LabelName ?? "" };
+    });
+
+    /// <summary>Remember the sticker name for this drug on this machine and the server (used by every machine).</summary>
+    public async Task<string> SaveDrugLabel(string json) => await Run(async () =>
+    {
+        var j = Parse(json);
+        var drugName = Str(j, "drugName");
+        if (drugName.Length == 0) throw new UserError("กรุณาเลือกยา");
+        string label;
+        try { label = DrugLabels.Normalize(Str(j, "labelName"), drugName); }
+        catch (ArgumentException e) { throw new UserError(e.Message); }
+
+        var key = DrugLabels.Key(Str(j, "source"), Str(j, "workingCode"), drugName);
+        if ((_local.GetDrugLabel(key)?.LabelName ?? "") != label)
+            _local.SaveDrugLabel(new DrugLabel(key, drugName, label));
+        var online = await _sync.TryNowAsync();
+        return new { labelName = label, online, sync = _sync.Status };
+    });
+
     /// <summary>Type guess for a manually typed drug name (name keywords only).</summary>
     public string ClassifyName(string drugName) => RunSync(() => Classifier().FromName(drugName) ?? "");
 
-    public async Task<string> FrequentQty(string workingCode, string drugName) => await Run(async () =>
-        _dbReady ? await Db().FrequentQtyAsync(workingCode.Length > 0 ? workingCode : null, drugName) : new List<decimal>());
+    public string FrequentQty(string workingCode, string drugName) => RunSync(() =>
+        _local.FrequentQty(workingCode.Length > 0 ? workingCode : null, drugName));
 
     // ── Print ──
 
     /// <summary>
-    /// Silent-prints the sheets the page has already rendered into #print-area, then logs the print.
-    /// A failed log is queued locally; printing never waits on MySQL.
+    /// Silent-prints the sheets the page has already rendered into #print-area, then records the print:
+    /// local database first, then the server. The sticker is already out before any network call.
     /// </summary>
     public async Task<string> Print(string json) => await Run(async () =>
     {
@@ -337,19 +419,11 @@ public class WebBridge
 
         await PrintRenderedAsync(layout);
 
-        if (log == null) return new { logged = false, queued = false };
-        try
-        {
-            if (!_dbReady) throw new UserError(_dbError ?? "ฐานข้อมูลไม่พร้อม");
-            await Db().InsertLogAsync(log);
-            await PendingLogs.FlushAsync(Db());
-            return new { logged = true, queued = false, pendingLogs = PendingLogs.Count };
-        }
-        catch (Exception)
-        {
-            await PendingLogs.AppendAsync(log);
-            return new { logged = false, queued = true, pendingLogs = PendingLogs.Count };
-        }
+        if (log == null) return new { logged = false, online = false, points = 0m, sync = _sync.Status };
+        // Local first (never lost), then straight to the server if it answers; otherwise it waits for a later sync.
+        _local.InsertLog(log);
+        var online = await _sync.TryNowAsync();
+        return new { logged = true, online, points = log.WorkPoints, sync = _sync.Status };
     });
 
     private PrintLog BuildLog(JsonNode j, int pages, int stickers)
@@ -358,11 +432,9 @@ public class WebBridge
         if (Str(j, "packDate") != Today())
             throw new UserError("วันที่เปลี่ยนแล้ว (ข้ามเที่ยงคืน) — หน้าจอปรับวันบรรจุให้ใหม่แล้ว กดพิมพ์อีกครั้ง");
 
-        var staffId = Int(j, "staffId", 0);
-        if (staffId <= 0) throw new UserError("กรุณาเลือกผู้บรรจุ");
-        // Cached list (loaded when the database was last reachable) so an outage now only queues the log.
-        if (!_cacheLoaded) throw new UserError((_dbError ?? "ฐานข้อมูลไม่พร้อม") + " — ยังพิมพ์ไม่ได้เพราะต้องรู้ชื่อผู้บรรจุ");
-        var staff = _staff.FirstOrDefault(s => s.Id == staffId && s.Active)
+        var staffUid = Str(j, "staffUid");
+        if (staffUid.Length == 0) throw new UserError("กรุณาเลือกผู้บรรจุ");
+        var staff = _local.ListStaff().FirstOrDefault(s => s.Uid == staffUid && s.Active)
             ?? throw new UserError("ไม่พบผู้บรรจุ หรือถูกปิดใช้งาน");
 
         var source = Str(j, "source") == "MANUAL" ? "MANUAL" : "INVS";
@@ -388,7 +460,7 @@ public class WebBridge
 
         return new PrintLog
         {
-            StaffId = staff.Id,
+            StaffUid = staff.Uid,
             StaffName = staff.Name,
             Source = source,
             WorkingCode = workingCode,
@@ -402,7 +474,7 @@ public class WebBridge
             LabelExpDate = labelExp,
             Pages = pages,
             Stickers = stickers,
-            WorkFactor = WorkFactors.Lookup(_factors, type.Key, qty),
+            WorkFactor = WorkFactors.Lookup(_local.GetWorkFactors().Table, type.Key, qty),
             PrintedAt = DateTime.Now,
             MachineName = Environment.MachineName,
         };
@@ -448,18 +520,45 @@ public class WebBridge
 
     // ── Reports ──
 
+    /// <summary>
+    /// All machines from MySQL when it is reachable (after a sync so this machine's prints are included);
+    /// otherwise this machine's local database, flagged so the page can say so.
+    /// </summary>
     public async Task<string> Workload(string json) => await Run(async () =>
     {
         var (from, to, source) = Range(Parse(json));
-        return await Db().WorkloadAsync(from, to, source);
+        return await FromRemoteOrLocal(
+            db => db.WorkloadAsync(from, to, source),
+            () => _local.Workload(from, to, source));
     });
 
     public async Task<string> Logs(string json) => await Run(async () =>
     {
         var j = Parse(json);
         var (from, to, source) = Range(j);
-        return await Db().LogsAsync(from, to, source, Int(j, "staffId", 0), Str(j, "lot"));
+        var staffUid = Str(j, "staffUid");
+        var lot = Str(j, "lot");
+        return await FromRemoteOrLocal(
+            db => db.LogsAsync(from, to, source, staffUid, lot, ReportLogLimit),
+            () => _local.Logs(from, to, source, staffUid, lot, ReportLogLimit));
     });
+
+    private async Task<object> FromRemoteOrLocal<T>(Func<PrePackDb, Task<T>> remote, Func<T> local)
+    {
+        string? reason = null;
+        if (_sync.CanReachNow && await _sync.RunAsync(wait: true))
+        {
+            try
+            {
+                var m = _cfg.MySql;
+                var db = PrePackDb.Create(m.Host, m.Port, m.User, ConfigStore.Unprotect(m.PasswordEnc), m.Database);
+                return new { rows = await remote(db), origin = "mysql", sync = _sync.Status };
+            }
+            catch (UserError e) { reason = e.Message; }
+        }
+        reason ??= _cfg.MySql.IsConfigured ? _sync.Status.LastError ?? "เชื่อมต่อ MySQL ไม่ได้" : "ยังไม่ได้ตั้งค่า MySQL";
+        return new { rows = local(), origin = "local", reason, sync = _sync.Status };
+    }
 
     /// <summary>Save-as dialog for a CSV export. The content gets a UTF-8 BOM so Excel shows Thai correctly.</summary>
     public string SaveCsv(string fileName, string content) => RunSync(() =>
@@ -482,13 +581,6 @@ public class WebBridge
 
     // ── Helpers ──
 
-    private PrePackDb Db()
-    {
-        var m = _cfg.MySql;
-        if (!m.IsConfigured) throw new UserError("ยังไม่ได้ตั้งค่า MySQL (⚙ → ฐานข้อมูล)");
-        return PrePackDb.Create(m.Host, m.Port, m.User, ConfigStore.Unprotect(m.PasswordEnc), m.Database);
-    }
-
     private static InvsClient Invs(InvsSettings s)
     {
         if (!s.IsConfigured) throw new UserError("ยังไม่ได้ตั้งค่า INVS (⚙ → ฐานข้อมูล)");
@@ -505,7 +597,8 @@ public class WebBridge
         unitMap = _cfg.UnitMap,
         nameKeywords = _cfg.NameKeywords,
         printerName = _cfg.PrinterName,
-        lastStaffId = _cfg.LastStaffId,
+        uiZoomPercent = UiZoomPercent,
+        lastStaffUid = _cfg.LastStaffUid,
         mysql = new { _cfg.MySql.Host, _cfg.MySql.Port, _cfg.MySql.User, _cfg.MySql.Database, hasPassword = _cfg.MySql.PasswordEnc.Length > 0 },
         invs = new
         {

@@ -130,6 +130,45 @@ public class LabelLayoutTests
     public void RejectsHeaderAsTallAsFrame() => Assert.NotNull(new LabelLayout { HeaderHeight = 50 }.Validate());
 
     [Fact]
+    public void FooterTakesRoomFromRows()
+    {
+        var l = new LabelLayout { FooterHeight = 5 }; // 50 - 8 - 5 - 2 gaps = 35 → 3 rows of 11.67
+        Assert.Null(l.Validate());
+        Assert.InRange(l.CellHeight, 11.66, 11.67);
+        Assert.NotNull(new LabelLayout { HeaderHeight = 25, FooterHeight = 25 }.Validate());
+    }
+
+    [Fact]
+    public void PerRowAndPerColumnSizesSetPositions()
+    {
+        var l = new LabelLayout { RowHeights = [12, 13, 15], ColWidths = [30, 25, 28] };
+        Assert.Null(l.Validate()); // rows 40 ≤ 40, cols 83 ≤ 83
+        Assert.Equal(8, l.RowTop(0));
+        Assert.Equal(8 + 12 + 1, l.RowTop(1));
+        Assert.Equal(8 + 12 + 1 + 13 + 1, l.RowTop(2));
+        Assert.Equal(15, l.RowHeight(2));
+        Assert.Equal(0, l.ColLeft(0));
+        Assert.Equal(30 + 1 + 25 + 1, l.ColLeft(2));
+        Assert.Equal(28, l.ColWidth(2));
+    }
+
+    [Fact]
+    public void EmptyListsMeanEvenSplit()
+    {
+        var l = new LabelLayout();
+        Assert.Equal(l.CellHeight, l.RowHeight(1));
+        Assert.Equal(l.CellWidth, l.ColWidth(2));
+    }
+
+    [Theory]
+    [InlineData(new[] { 13.0, 13.0 }, null)]              // 2 values for 3 rows
+    [InlineData(new[] { 14.0, 14.0, 14.0 }, null)]        // 42 > 40 mm of row space
+    [InlineData(new[] { 13.0, 0.0, 13.0 }, null)]         // zero height
+    [InlineData(null, new[] { 30.0, 30.0, 30.0 })]        // 90 > 83 mm of column space
+    public void RejectsBadPerRowOrColumnSizes(double[]? rows, double[]? cols) =>
+        Assert.NotNull(new LabelLayout { RowHeights = rows?.ToList() ?? [], ColWidths = cols?.ToList() ?? [] }.Validate());
+
+    [Fact]
     public void RejectsGapsThatLeaveNoRoom() => Assert.NotNull(new LabelLayout { GapX = 43 }.Validate()); // 85 - 2×43 < 0
 }
 
@@ -191,6 +230,7 @@ public class WorkFactorTests
         var pw = Environment.GetEnvironmentVariable("PREPACK_ADMIN_PASSWORD");
         if (string.IsNullOrEmpty(pw)) return;
         Assert.True(WorkFactors.CheckPassword(pw));
+        Assert.True(WorkFactors.CheckPassword(" " + pw + " ")); // copy-paste spaces are ignored
         Assert.False(WorkFactors.CheckPassword(pw.ToUpperInvariant() == pw ? pw.ToLowerInvariant() : pw.ToUpperInvariant()));
         Assert.False(WorkFactors.CheckPassword(pw + "4"));
     }
@@ -198,6 +238,34 @@ public class WorkFactorTests
     [Fact]
     public void LogPointsAreStickersTimesFactor() =>
         Assert.Equal(27m, new PrintLog { Stickers = 18, WorkFactor = 1.5m }.WorkPoints);
+}
+
+public class DrugLabelTests
+{
+    [Fact]
+    public void InvsDrugsAreKeyedByWorkingCode() =>
+        Assert.Equal("INVS:1000456", DrugLabels.Key("INVS", " 1000456 ", "anything"));
+
+    [Fact]
+    public void ManualDrugsAreKeyedByNormalizedName()
+    {
+        var a = DrugLabels.Key("MANUAL", null, "Urea  cream 10%");
+        Assert.Equal(a, DrugLabels.Key("MANUAL", "", " urea cream 10% "));
+        Assert.StartsWith("NAME:", a);
+        Assert.True(a.Length <= 64); // fits drug_labels.drug_key VARCHAR(64)
+        Assert.NotEqual(a, DrugLabels.Key("MANUAL", null, "Urea cream 20%"));
+    }
+
+    [Theory]
+    [InlineData("  Augmentin   1 g ", "Augmentin 1 g")]
+    [InlineData("", "")]                                  // empty = use full name
+    [InlineData("Amoxicillin 500 mg cap", "")]            // same as full name = use full name
+    public void NormalizesLabel(string typed, string stored) =>
+        Assert.Equal(stored, DrugLabels.Normalize(typed, "Amoxicillin 500 mg cap"));
+
+    [Fact]
+    public void RejectsTooLongLabel() =>
+        Assert.Throws<ArgumentException>(() => DrugLabels.Normalize(new string('ก', 101), "x"));
 }
 
 public class SchemaTests
@@ -228,6 +296,16 @@ public class SchemaTests
         Assert.Equal(3, stmts.Count); // staff, print_logs, work_factors
         Assert.All(stmts, s => Assert.StartsWith("CREATE TABLE IF NOT EXISTS", s));
         Assert.DoesNotContain(stmts, s => s.Contains("JSON", StringComparison.OrdinalIgnoreCase)); // MySQL 5.7 / MariaDB 10.3
+    }
+
+    [Fact]
+    public void StaffUidMigrationAddsBackfillsThenIndexes()
+    {
+        var stmts = Schema.SplitStatements(Schema.EmbeddedMigrations().Single(m => m.Version == "002_staff_uid").Body);
+        Assert.Equal(3, stmts.Count);
+        Assert.StartsWith("ALTER TABLE staff ADD COLUMN uid", stmts[0]);
+        Assert.StartsWith("UPDATE staff SET uid = UUID()", stmts[1]);
+        Assert.Contains("UNIQUE KEY", stmts[2]);
     }
 
     [Fact]

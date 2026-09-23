@@ -11,6 +11,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>PrePack</AssemblyName>
+    <ApplicationIcon>app.ico</ApplicationIcon>
     <RootNamespace>PrePack</RootNamespace>
     <Product>PrePack</Product>
     <Description>Drug repackaging label printer and workload log</Description>
@@ -29,6 +30,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.2" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.0" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2792.45" />
     <PackageReference Include="MySqlConnector" Version="2.4.0" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="9.0.0" />
@@ -39,6 +41,7 @@
     <EmbeddedResource Include="wwwroot\**\*" Exclude="wwwroot\dev\**" LogicalName="wwwroot/$([System.String]::Copy('%(RecursiveDir)').Replace('\','/'))%(Filename)%(Extension)" />
     <EmbeddedResource Include="Data\Migrations\*.sql" LogicalName="migrations/%(Filename)%(Extension)" />
     <EmbeddedResource Include="seed-config.json" LogicalName="seed-config.json" />
+    <EmbeddedResource Include="app.ico" LogicalName="app.ico" />
   </ItemGroup>
 
   <ItemGroup>

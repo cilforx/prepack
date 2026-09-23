@@ -67,7 +67,10 @@ public static partial class Schema
         return applied;
     }
 
-    /// <summary>First run only: default workload bands (factor 1 = every sticker counts the same).</summary>
+    /// <summary>
+    /// First run only: default workload bands (factor 1 = every sticker counts the same), stamped with the
+    /// sync epoch so a table a pharmacist already set on a local machine wins the first sync.
+    /// </summary>
     private static async Task SeedWorkFactorsAsync(MySqlConnection conn, CancellationToken ct)
     {
         await using (var count = new MySqlCommand("SELECT COUNT(*) FROM work_factors", conn))
@@ -77,10 +80,11 @@ public static partial class Schema
         foreach (var f in Domain.WorkFactors.Defaults)
         {
             await using var ins = new MySqlCommand(
-                "INSERT INTO work_factors (drug_type, max_qty, factor) VALUES (@t, @m, @f)", conn);
+                "INSERT INTO work_factors (drug_type, max_qty, factor, updated_at) VALUES (@t, @m, @f, @u)", conn);
             ins.Parameters.AddWithValue("@t", f.DrugType);
             ins.Parameters.AddWithValue("@m", (object?)f.MaxQty ?? DBNull.Value);
             ins.Parameters.AddWithValue("@f", f.Factor);
+            ins.Parameters.AddWithValue("@u", DateTime.SpecifyKind(Domain.SyncRules.Epoch, DateTimeKind.Unspecified));
             await ins.ExecuteNonQueryAsync(ct);
         }
     }

@@ -12,7 +12,10 @@ public sealed class AppConfig
     public Dictionary<string, List<string>> NameKeywords { get; set; } = [];
 
     public string PrinterName { get; set; } = "";
-    public int? LastStaffId { get; set; }
+
+    /// <summary>Screen zoom for this machine, percent (WebView2 ZoomFactor × 100). Does not affect printing.</summary>
+    public int UiZoomPercent { get; set; } = 100;
+    public string LastStaffUid { get; set; } = "";
 
     public MySqlSettings MySql { get; set; } = new();
     public InvsSettings Invs { get; set; } = new();

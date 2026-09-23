@@ -2,6 +2,9 @@
 
 อ่าน `devlog.md` ก่อนเริ่มงานทุกครั้ง และอัปเดตเมื่อจบงาน
 
+> ⚠️ **อ่าน `PLAN.md` ก่อน** — ตกลงกันแล้วว่าจะเปลี่ยนไปใช้ C# .NET 8 + WebView2 (exe ไฟล์เดียว, silent print แบบ BoxBox)
+> โค้ด Go + Gin ด้านล่างเป็นต้นแบบ v0.1 ที่จะถูกแทนที่ ยังไม่ได้เริ่ม implement แผนใหม่
+
 ## Stack
 - Go 1.23 + Gin, MySQL/MariaDB via `go-sql-driver/mysql`
 - UI: plain HTML/CSS/JS in `web/`, embedded with `go:embed` — no build step, no framework

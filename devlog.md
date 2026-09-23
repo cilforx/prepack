@@ -11,7 +11,16 @@
 - พิมพ์ฉลากสติกเกอร์ 85×50 มม. 3×3 ดวง มีส่วนหัวทิ้ง ตั้ง layout ได้ในหน้าเว็บ มีโหมดเส้นขอบไว้ทดสอบตำแหน่ง
 - ทดสอบ end-to-end กับ MariaDB 10.11 + Chromium (PDF ออกมาหน้าละ 85×50 มม.)
 
+### Session 2 — 23 ก.ย. 2569 (คุยแนวทาง ยังไม่เขียนโค้ด)
+- ผู้ใช้ขอหน้าจอเดียว: header (ผู้บรรจุ/ยา/Lot/EXP/จำนวนต่อซอง + ⚙), body = ตัวอย่างสติกเกอร์, footer = จำนวนหน้า/ดวง + พิมพ์
+- ตกลงเปลี่ยนเป็น C# .NET 8 + WebView2 exe ไฟล์เดียว, silent print, ดึงยา/Lot/EXP จาก INVS (หา invs.ini อัตโนมัติแบบ BoxBox)
+- config: seed ฝังใน exe → %APPDATA%\PrePack\config.json, log การพิมพ์เก็บใน MySQL (โปรแกรมสร้าง DB เอง)
+- ประเภทยาตัดสินจากหน่วยใน INVS + ชื่อยา → อายุบนฉลาก เม็ด 1 ปี / ครีม 6 เดือน / น้ำ 30 วัน
+- รายละเอียดทั้งหมดอยู่ใน `PLAN.md`
+
 ## 📌 Pending
+- [ ] **เริ่ม implement ตาม `PLAN.md`** (ย้ายไปทำต่อบนเครื่อง local)
+- [ ] หาชื่อคอลัมน์หน่วยใน INVS `DRUG_GN` (`SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME='DRUG_GN'`)
 - [ ] ได้ connection config ของ MySQL server โรงพยาบาล → ทดสอบจริง
 - [ ] ทดสอบพิมพ์กับเครื่องพิมพ์สติกเกอร์จริง แล้วปรับ offset / ขนาดส่วนหัว
 - [ ] นำเข้ารายการยาจาก HIS (ถ้าต้องการ)

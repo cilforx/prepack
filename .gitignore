@@ -3,3 +3,10 @@
 /prepack
 /prepack.exe
 *.log
+
+# C# (src/, tests/)
+bin/
+obj/
+*.user
+.vs/
+/publish/

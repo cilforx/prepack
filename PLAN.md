@@ -1,8 +1,7 @@
 # PrePack v1 — แผนงานที่ตกลงกันแล้ว (สรุปจาก session 23 ก.ย. 2569)
 
-> **สถานะ:** ตกลงหลักการแล้ว **ยังไม่ได้เริ่มเขียนโค้ด**
-> โค้ด Go + Gin ที่อยู่ใน repo ตอนนี้ (v0.1) เป็นต้นแบบรุ่นแรก จะถูกแทนที่ด้วยแผนนี้
-> ใช้อ้างอิง schema และกฎการคำนวณได้ แต่ไม่ต้องพัฒนาต่อ
+> **สถานะ:** implement แล้วใน `src/PrePack` (ข้อ 9 ขั้น 1–6) — ยังไม่ได้ทดสอบกับ MySQL/INVS/เครื่องพิมพ์จริง (ดู devlog)
+> โค้ด Go + Gin ที่ root (v0.1) เป็นต้นแบบรุ่นแรก ใช้อ้างอิงได้ แต่ไม่ต้องพัฒนาต่อ
 
 ## 1. ปัญหาที่ต้องแก้ (จากหน้างานห้องยา)
 
@@ -15,7 +14,7 @@
   - ปริมาณงานของแต่ละคนไม่เท่ากัน
   - รูปแบบการแพ็คไม่เป็นมาตรฐาน
 - ตอนนี้พิมพ์ฉลากจาก Excel ลงสติกเกอร์ 8.5 × 5 ซม. แบ่ง 3×3 ดวง มีส่วนหัวที่ฉีกทิ้ง
-- ข้อมูลบนฉลาก: ชื่อยา, จำนวน (#), Lot, วันบรรจุ, วันหมดอายุ, ผู้บรรจุ
+- ข้อมูลบนฉลาก: ชื่อยา, จำนวน (#), Lot, ผู้บรรจุ, วันบรรจุ (Mfd), วันหมดอายุ (Exp) — template ดูข้อ 4
 
 ## 2. เป้าหมาย
 
@@ -38,6 +37,7 @@
   แก้ไขได้ทุกช่อง หรือกรอกเองทั้งหมดได้ (ยา Manual)
 - **จำนวน** = **จำนวนต่อซอง** (#30 เม็ด, #5 g) มีปุ่มลัดเป็นขนาดที่ยานั้นเคยแพ็คบ่อย
 - **ประเภทยา** — ระบบรู้เอง (ข้อ 5) แสดงเป็นป้ายเล็ก ๆ ไม่ต้องกด
+- **วันบรรจุ = วันนี้เสมอ** (วันที่ของเครื่อง ณ ตอนกดพิมพ์) ไม่มีช่องให้กรอก
 - **Footer** — จำนวนหน้า และจำนวนดวงที่พิมพ์ (แก้ได้) พร้อมปุ่มพิมพ์
 - **⚙ (มุมขวาบน)** — เจ้าหน้าที่, ฐานข้อมูล (MySQL / INVS), เครื่องพิมพ์, ตั้งค่าสติกเกอร์,
   อายุยาตามประเภท, ตารางหน่วย → ประเภท, ประวัติ, รายงานภาระงาน
@@ -50,6 +50,24 @@
 - ช่องว่างระหว่างดวง แนวตั้ง / แนวนอน
 - ขนาดตัวอักษร, ปี พ.ศ./ค.ศ.
 - ใช้วิธีวาง layout เป็นมิลลิเมตรต่อจาก v0.1 (`web/common.js` `buildFrames`, `internal/domain/label.go`)
+
+**Template ข้อความในแต่ละดวง (ตกลงแล้ว)**
+
+```
+ยา: Paracetamol 500 mg #30
+Lot: A12345 สมชาย
+Mfd: 23/09/69
+Exp: 22/09/70
+```
+
+**ทุกบรรทัดชิดซ้าย** ข้อความต่อกันไป (ไม่มีส่วนไหนชิดขวา)
+
+- บรรทัด 1: `ยา:` ชื่อยา ตามด้วย `#จำนวน` ต่อท้ายทันที **ไม่มีหน่วย**
+  ชื่อยายาวเกินให้**ตัดคำ** (…) โดย `#จำนวน` ต้องเห็นครบเสมอ
+- บรรทัด 2: `Lot:` lot (แสดงครบ) ตามด้วยชื่อผู้บรรจุ — ชื่อยาวให้**ตัดคำ** (…) ให้พอดีที่เหลือ
+- `Mfd:` = วันบรรจุ (วันนี้)
+- `Exp:` = วันหมดอายุบนฉลาก (ข้อ 5)
+- รูปแบบวันที่ `dd/mm/yy` ตามตัวเลือก พ.ศ./ค.ศ. ใน ⚙
 
 ## 5. ประเภทยาและวันหมดอายุบนฉลาก
 
@@ -69,7 +87,7 @@
    - `syr, susp, sol, elixir, mixt` → น้ำ
 3. **ยา Manual** ดูจากชื่อยาอย่างเดียว
 
-หน่วยบนฉลาก (`#30 เม็ด`, `#5 g`) มาจากขั้นตอนเดียวกันนี้
+หน่วย (เม็ด / g / ml) ใช้แสดงบนหน้าจอและเก็บใน log เท่านั้น — **บนฉลากพิมพ์แค่ `#30` ไม่มีหน่วย**
 
 **วันหมดอายุบนฉลาก**
 
@@ -99,24 +117,59 @@
 
 รายงานภาระงาน: นับรายการยา, จำนวนหน้า และจำนวนดวงต่อคน แยก INVS/Manual และแยกประเภทยา ตามช่วงวันที่ export ได้
 
+**หน้ารายงาน (ตกลงจาก mockup):** ⚙ → รายงานภาระงาน
+- ตัวกรอง: ช่วงวันที่ + ปุ่มลัด วันนี้ / สัปดาห์นี้ / เดือนนี้, แหล่ง (ทั้งหมด / INVS / Manual), Export CSV (UTF-8 BOM เปิดใน Excel ได้)
+- ตัวเลขสรุป 4 ช่อง: รายการที่พิมพ์, หน้า, ดวง, % ยา Manual
+- ตารางรายคน: รายการ, หน้า, ดวงแยก เม็ด/ครีม/น้ำ, รวมดวง, **แต้มงาน, % ภาระงาน** + แถบ — คลิกชื่อดูรายการของคนนั้น
+- ⚙ → ประวัติการพิมพ์: ค้นหาตาม Lot (recall) + Export CSV
+- ไม่มีขั้นตอนเภสัชกรตรวจ (ค่าที่เลือกเอง ผู้ใช้ยังไม่ได้ตอบ)
+
+**แต้มภาระงาน (ตกลงแล้ว):** แต้ม = จำนวนดวง × factor
+- factor ขึ้นกับประเภทยา + ช่วง #จำนวนต่อซอง เช่น ยาเม็ด #1–5 / #6–30 / #31–60 / #61–100 / #101 ขึ้นไป, ครีม, ยาน้ำ
+- ค่าเริ่มต้น factor = 1 ทุกช่วง (ซองใหญ่กับซองเล็กนับเท่ากัน) จนกว่าจะตั้งใหม่
+- ตั้งที่ ⚙ → แต้มภาระงาน **ต้องใส่รหัส** (C# ตรวจอีกชั้นตอนบันทึก, เก็บเป็น SHA-256 ในโค้ด ไม่ใช่ security boundary)
+- เก็บใน MySQL ตาราง `work_factors` ใช้ร่วมทุกเครื่อง; `print_logs` เก็บ snapshot `work_factor`, `work_points` → แก้ factor ไม่กระทบประวัติ
+- % ภาระงาน = แต้มของคนนั้น ÷ แต้มรวมทุกคนในช่วงวันที่/แหล่งที่เลือก
+
+**บันทึกเมื่อพิมพ์สำเร็จเท่านั้น** ถ้า MySQL ล่มระหว่างนั้น log เก็บไว้ที่ `%APPDATA%\PrePack\pending-logs.jsonl`
+แล้วส่งเองเมื่อเชื่อมต่อได้ (กันซ้ำด้วย `client_uid`) — การพิมพ์ไม่ต้องรอฐานข้อมูล
+รายชื่อผู้บรรจุและ factor ถูก cache ตอนเชื่อม MySQL ได้ครั้งแรก (เปิดโปรแกรม) — ถ้า MySQL ล่มกลางวันยังพิมพ์ได้
+แต่ถ้าเปิดโปรแกรมตอน MySQL ล่ม จะพิมพ์ไม่ได้จนกว่าจะเชื่อมได้ (ต้องรู้ชื่อผู้บรรจุ)
+
 ## 7. สถาปัตยกรรม (ตกลงแล้ว)
 
-- **C# .NET 8 WinForms + WebView2** แบบ BoxBox
-- **exe ไฟล์เดียว** (`PublishSingleFile`) ฝังหน้าเว็บ (HTML/CSS/JS) เป็น resource
-  เสิร์ฟผ่าน `WebResourceRequested` หรือแตกไฟล์ออกมาชั่วคราว
+- **C# .NET 10 (LTS) WinForms + WebView2** — เลือก .NET 10 เพราะ .NET 8/9 หมด support 10 พ.ย. 2569
+  (BoxBox ยังเป็น net9.0; เครื่อง dev ต้องติดตั้ง .NET 10 SDK)
+- **exe ไฟล์เดียว** (ยืนยันแล้ว แม้ BoxBox จะเลือก installer): `PublishSingleFile` + `SelfContained` + win-x64
+  - `IncludeNativeLibrariesForSelfExtract=true` (WebView2Loader.dll อยู่ใน exe)
+  - `EnableCompressionInSingleFile=false` เพื่อลดโอกาส antivirus แจ้งผิด (BoxBox เคยเจอ)
+  - หน้าเว็บ (HTML/CSS/JS) ฝังเป็น `EmbeddedResource` — ฟอนต์ใช้ **Leelawadee UI** ที่มากับ Windows (ยังไม่ฝัง Sarabun
+    เพราะต้องดาวน์โหลดไฟล์ฟอนต์ก่อน ถ้าต้องการ Sarabun ให้วาง .ttf ใน `wwwroot/fonts/` แล้วเพิ่ม @font-face)
+  - MySQL client ใช้ **MySqlConnector** (แทน MySql.Data ของ BoxBox — รองรับ MySQL 5.7 / MariaDB 10.3 ดีกว่า)
+  - exe ที่ publish ขนาด ~118 MB (รวม runtime .NET, ไม่บีบอัด)
+    เสิร์ฟผ่าน `WebResourceRequested` ที่ `https://prepack.app/` — ไม่แตกไฟล์ ไม่พึ่งอินเทอร์เน็ต
+  - WebView2 Runtime ใช้ของ Windows 11 ที่มีอยู่แล้ว (Evergreen)
 - **ไม่ใช้ Gin หรือ web server** หน้าจอคุยกับ C# ผ่าน COM bridge
-  (`window.chrome.webview.hostObjects.bridge`) แบบ BoxBox
+  (`window.chrome.webview.hostObjects.bridge`) แบบ BoxBox — parameter เป็น string/int/bool, ข้อมูลซับซ้อนส่ง JSON string
 - **Silent print:** `CoreWebView2.PrintAsync(CoreWebView2PrintSettings)`
+  (ต่างจาก BoxBox ที่วาดด้วย GDI+ `PrintDocument` — ใช้ HTML เพื่อให้ตรงกับ preview และตัดคำไทยได้ดี)
   - ระบุ `PrinterName`, `PageWidth`/`PageHeight` ตามสติกเกอร์, margin 0
   - ปิด header/footer ของเบราว์เซอร์
   - พิมพ์ HTML ชุดเดียวกับตัวอย่างบนจอ ภาษาไทยถูกต้อง
-- **ใช้โค้ดจาก BoxBox ซ้ำ** (`BoxBox/Bridge/WebBridge.cs`):
+- **ใช้โค้ดจาก BoxBox ซ้ำ** (`D:\COACH\source\repo\BoxBox\Bridge\WebBridge.cs`):
   - `ReadInvsIni()` / `ParseInvsIni()` — หา `invs.ini` อัตโนมัติทุก fixed drive แล้วถอด Base64 ใน section `[Pharms]` (ServerName, Port, Database, User, Password)
   - `BrowseInvsIni()` — ให้ผู้ใช้เลือกไฟล์เอง
-  - SqlClient สำหรับ INVS (อ่านอย่างเดียว) และ MySQL client
-  - ระบบ auto-update
+  - `GetPrinters()` — รายชื่อเครื่องพิมพ์
+  - Microsoft.Data.SqlClient สำหรับ INVS, MySql.Data สำหรับ MySQL
+  - auto-update (`CheckForUpdate` / `DownloadVerifiedAsync` + SHA-256 + host allowlist) — ต้องดัดแปลง
+    เพราะ BoxBox อัปเดตผ่าน installer แต่ PrePack เป็น exe เดียว (ดาวน์โหลด exe ใหม่ → สลับไฟล์ตอนปิดโปรแกรม)
+- **ไม่ลอกแบบ BoxBox:** `QueryInvs` ของ BoxBox รับ SQL ดิบจาก JS และส่งรหัสผ่านจาก JS ทุกครั้ง
+  → PrePack ให้ C# ถือ connection config เอง และมี method เฉพาะงาน (`SearchDrugs(kw)`, `GetLots(code)`)
+  ใช้ parameter ทั้งหมด JS ส่ง SQL ไม่ได้
 - **ติดตั้งบนเครื่องห้องยา** แล้วต่อ MySQL server ของโรงพยาบาล
   **โปรแกรมต้องสร้าง database และตารางเอง** (มีแค่ host / user / password)
+- **DB `prepack` แยกจาก HOSxP / JHCIS** (ยืนยันแล้ว) — เขียนได้เฉพาะ DB ของ PrePack เอง
+  ห้ามเขียนลง HOSxP / JHCIS / INVS (อ่านอย่างเดียว ตามกฎใน `D:\COACH\source\repo\CLAUDE.md`)
 
 ### คำสั่ง SQL ของ INVS (SQL Server, อ่านอย่างเดียว, ใช้ parameter ห้ามต่อ string)
 
@@ -153,7 +206,7 @@ ORDER BY EXPIRED_DATE;
 
 ## 9. ลำดับงานที่เสนอ
 
-1. วางโครงโปรเจกต์ C# (.csproj single-file, WebView2, bridge) และ seed config + AppData loader
+1. วางโครงโปรเจกต์ C# (.csproj net10.0-windows single-file, WebView2, bridge) และ seed config + AppData loader
 2. ส่วน MySQL: สร้าง DB, migration, เจ้าหน้าที่, log การพิมพ์
 3. ส่วน INVS: หา `invs.ini`, ค้นหายา, ดึง Lot, **หาคอลัมน์หน่วย**, ตัดสินประเภทยา
 4. หน้าจอหลัก (header / preview / footer) และหน้า ⚙

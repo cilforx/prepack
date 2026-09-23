@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>PrePack</title>
+<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/labels.css">
+<style id="page-size"></style>
+</head>
+<body>
+<div id="app" class="no-print">
+  <header class="bar">
+    <label class="fld w-staff">ผู้บรรจุ
+      <select id="staff"></select>
+    </label>
+    <div class="fld w-drug drug-box">
+      <span>ยา <span id="drug-source" class="tag"></span></span>
+      <input id="drug" autocomplete="off" placeholder="พิมพ์ชื่อยา / รหัส INVS (2 ตัวอักษรขึ้นไป)">
+      <div id="drug-list" class="dropdown" hidden></div>
+    </div>
+    <label class="fld w-type">ประเภท
+      <select id="drug-type"></select>
+    </label>
+    <label class="fld w-lot">Lot
+      <input id="lot" list="lot-list" autocomplete="off" maxlength="40">
+      <datalist id="lot-list"></datalist>
+    </label>
+    <label class="fld w-date">EXP เดิม
+      <input id="src-exp" type="date">
+    </label>
+    <label class="fld w-date">EXP ฉลาก
+      <input id="label-exp" type="date">
+    </label>
+    <label class="fld w-qty"># จำนวน
+      <span class="qty-wrap"><input id="qty" type="number" min="0" step="any"><span id="qty-unit" class="muted"></span></span>
+    </label>
+    <div class="bar-actions">
+      <button id="btn-settings" class="icon" title="ตั้งค่า / รายงาน">⚙</button>
+    </div>
+  </header>
+
+  <div class="subbar">
+    <div id="qty-chips" class="chips"></div>
+    <div id="exp-note" class="muted"></div>
+  </div>
+
+  <main id="preview" class="preview"></main>
+
+  <footer class="bar foot">
+    <div class="pager">จำนวนหน้า
+      <button id="pages-minus" class="step" aria-label="ลดจำนวนหน้า">−</button>
+      <input id="pages" type="number" min="1" max="200" value="1">
+      <button id="pages-plus" class="step" aria-label="เพิ่มจำนวนหน้า">+</button>
+    </div>
+    <label class="pager">จำนวนดวง <input id="stickers" type="number" min="1"></label>
+    <div id="msg" class="msg"></div>
+    <div id="db-status" class="muted"></div>
+    <button id="btn-test" title="พิมพ์เส้นขอบเพื่อปรับตำแหน่ง ไม่บันทึกภาระงาน">ทดสอบตำแหน่ง</button>
+    <button id="btn-print" class="primary big">🖨 พิมพ์</button>
+  </footer>
+</div>
+
+<div id="settings" class="overlay no-print" hidden>
+  <div class="panel">
+    <nav id="settings-tabs">
+      <button data-tab="report" class="active">รายงานภาระงาน</button>
+      <button data-tab="history">ประวัติการพิมพ์</button>
+      <button data-tab="factors">แต้มภาระงาน (factor)</button>
+      <button data-tab="staff">เจ้าหน้าที่</button>
+      <button data-tab="label">สติกเกอร์ / เครื่องพิมพ์</button>
+      <button data-tab="types">ประเภทยา / อายุยา</button>
+      <button data-tab="db">ฐานข้อมูล</button>
+      <div class="spacer"></div>
+      <div id="version" class="muted small"></div>
+      <button id="btn-close-settings">✕ ปิด</button>
+    </nav>
+    <section class="content">
+      <div id="tab-report" class="tab active"></div>
+      <div id="tab-history" class="tab"></div>
+      <div id="tab-factors" class="tab"></div>
+      <div id="tab-staff" class="tab"></div>
+      <div id="tab-label" class="tab"></div>
+      <div id="tab-types" class="tab"></div>
+      <div id="tab-db" class="tab"></div>
+    </section>
+  </div>
+</div>
+
+<div id="print-area"></div>
+
+<script>
+  // Outside WebView2 (browser preview during development) use a fake bridge.
+  if (!(window.chrome && window.chrome.webview)) document.write('<script src="dev/mock-bridge.js"><\/script>');
+</script>
+<script src="js/util.js"></script>
+<script src="js/labels.js"></script>
+<script src="js/settings.js"></script>
+<script src="js/report.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

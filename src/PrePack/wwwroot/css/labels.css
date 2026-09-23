@@ -1,0 +1,39 @@
+/* Sticker frames — millimetres end-to-end so print output matches the roll (see labels.js). */
+.lb-frame {
+  position: relative;
+  overflow: hidden;
+  background: #fff;
+  color: #000;
+  font-family: 'Leelawadee UI', 'Tahoma', sans-serif;
+  break-after: page;
+}
+.lb-frame:last-child { break-after: auto; }
+.lb-inner { position: absolute; }
+.lb-cell {
+  position: absolute;
+  box-sizing: border-box;
+  overflow: hidden;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+/* line 1: "ยา: name" truncates, "#qty" always visible — all left-aligned */
+.lb-line { display: flex; justify-content: flex-start; gap: 0.8mm; min-width: 0; }
+.lb-trunc { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.lb-keep { flex: none; }
+.lb-l1 { font-weight: 700; }
+
+.lb-frame.outline { outline: 0.2mm dashed #999; }
+.lb-frame.outline .lb-cell { outline: 0.2mm solid #2a7de1; }
+.lb-header {
+  position: absolute; left: 0; top: 0;
+  background: repeating-linear-gradient(45deg, #eee, #eee 2mm, #fff 2mm, #fff 4mm);
+  font-size: 6pt; color: #888;
+  display: flex; align-items: center; justify-content: center;
+}
+
+#print-area { display: none; }
+@media print {
+  html, body { margin: 0; padding: 0; background: #fff; }
+  .no-print { display: none !important; }
+  #print-area { display: block; }
+}

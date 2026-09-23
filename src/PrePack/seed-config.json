@@ -1,0 +1,31 @@
+{
+  "layout": {
+    "frameWidth": 85,
+    "frameHeight": 50,
+    "headerHeight": 8,
+    "rows": 3,
+    "cols": 3,
+    "gapX": 1,
+    "gapY": 1,
+    "offsetX": 0,
+    "offsetY": 0,
+    "padding": 0.8,
+    "fontSize": 5.5,
+    "buddhistYear": true
+  },
+  "drugTypes": [
+    { "key": "tablet", "label": "ยาเม็ด", "unit": "เม็ด", "shelfDays": 365, "qtyPresets": [30, 60, 100, 1, 2] },
+    { "key": "cream",  "label": "ครีม",   "unit": "g",    "shelfDays": 180, "qtyPresets": [5, 10] },
+    { "key": "liquid", "label": "ยาน้ำ",  "unit": "ml",   "shelfDays": 30,  "qtyPresets": [30, 60] }
+  ],
+  "unitMap": {
+    "TAB": "tablet", "TABS": "tablet", "CAP": "tablet", "CAPS": "tablet", "เม็ด": "tablet", "แคปซูล": "tablet",
+    "TUBE": "cream", "หลอด": "cream", "กรัม": "cream", "G": "cream", "GM": "cream", "JAR": "cream", "กระปุก": "cream",
+    "BOT": "liquid", "BOTT": "liquid", "ขวด": "liquid", "ML": "liquid", "ซีซี": "liquid", "CC": "liquid"
+  },
+  "nameKeywords": {
+    "tablet": ["tab", "tabs", "tablet", "tablets", "cap", "caps", "capsule", "capsules"],
+    "cream":  ["cream", "crm", "oint", "ointment", "gel", "lotion"],
+    "liquid": ["syr", "syrup", "susp", "suspension", "sol", "soln", "solution", "elixir", "elix", "mixt", "mixture"]
+  }
+}

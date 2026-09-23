@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <!-- net10 = LTS ถึง พ.ย. 2571 (net8/9 หมด support 10 พ.ย. 2569)
+         ถ้าเครื่องยังไม่มี SDK 10: dotnet build -p:PrePackTfm=net9.0-windows
+         (ใช้ property แยก เพราะ restore ไม่ส่ง -p:TargetFramework ต่อ) -->
+    <PrePackTfm Condition="'$(PrePackTfm)' == ''">net10.0-windows</PrePackTfm>
+    <TargetFramework>$(PrePackTfm)</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>PrePack</AssemblyName>
+    <RootNamespace>PrePack</RootNamespace>
+    <Product>PrePack</Product>
+    <Description>Drug repackaging label printer and workload log</Description>
+    <Version>1.0.0</Version>
+
+    <!-- exe ไฟล์เดียว: รวม runtime + WebView2Loader.dll, ไม่บีบอัด (ลด AV false positive) -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>false</EnableCompressionInSingleFile>
+    <PublishTrimmed>false</PublishTrimmed>
+    <DebugType>embedded</DebugType>
+    <PublishReferencesDocumentationFiles>false</PublishReferencesDocumentationFiles>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.2" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2792.45" />
+    <PackageReference Include="MySqlConnector" Version="2.4.0" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="9.0.0" />
+  </ItemGroup>
+
+  <!-- หน้าเว็บ + seed config + migrations ฝังใน exe; LogicalName ใช้ path แบบ / ให้หาเจอตรงตัว -->
+  <ItemGroup>
+    <EmbeddedResource Include="wwwroot\**\*" Exclude="wwwroot\dev\**" LogicalName="wwwroot/$([System.String]::Copy('%(RecursiveDir)').Replace('\','/'))%(Filename)%(Extension)" />
+    <EmbeddedResource Include="Data\Migrations\*.sql" LogicalName="migrations/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="seed-config.json" LogicalName="seed-config.json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="PrePack.Tests" />
+  </ItemGroup>
+
+</Project>

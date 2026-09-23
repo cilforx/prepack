@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PrePack — แบ่งบรรจุยา</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="labels.css">
+</head>
+<body>
+<header>
+  <h1>💊 PrePack <small>ระบบแบ่งบรรจุยา Pre-pack / Unit dose</small></h1>
+  <nav id="tabs">
+    <button data-tab="pack" class="active">บันทึกแพ็ค</button>
+    <button data-tab="jobs">ประวัติ / ตรวจ</button>
+    <button data-tab="report">ภาระงาน</button>
+    <button data-tab="drugs">ข้อมูลยา</button>
+    <button data-tab="staff">เจ้าหน้าที่</button>
+    <button data-tab="label">ตั้งค่าฉลาก</button>
+  </nav>
+</header>
+
+<main>
+  <!-- บันทึกแพ็ค -->
+  <section id="tab-pack" class="tab active">
+    <div class="grid2">
+      <form id="pack-form" class="card">
+        <h2>บันทึกการแบ่งบรรจุ</h2>
+        <label>ผู้บรรจุ <select id="pk-packer" required></select></label>
+        <label>ยา
+          <input id="pk-drug-search" placeholder="พิมพ์ค้นหาชื่อยา / รหัส" autocomplete="off">
+          <select id="pk-drug" size="6" required></select>
+        </label>
+        <div>ขนาดบรรจุ (มาตรฐาน)</div>
+        <div id="pk-sizes" class="chips"><span class="muted">เลือกยาก่อน</span></div>
+        <div class="row">
+          <label>จำนวนซอง <input type="number" id="pk-count" min="1" max="2000" required></label>
+          <label>Lot (ภาชนะเดิม) <input id="pk-lot" required maxlength="40"></label>
+        </div>
+        <div class="row">
+          <label>EXP ภาชนะเดิม <input type="date" id="pk-srcexp" required></label>
+          <label>วันบรรจุ <input type="date" id="pk-date" required></label>
+        </div>
+        <label>หมายเหตุ <input id="pk-note" maxlength="255"></label>
+        <div id="pk-summary" class="summary"></div>
+        <button type="submit" class="primary">บันทึก + พิมพ์ฉลาก</button>
+        <div id="pk-msg" class="msg"></div>
+      </form>
+      <div class="card">
+        <h2>วันนี้ <span id="today-total" class="muted"></span></h2>
+        <div id="today-jobs"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ประวัติ / ตรวจ -->
+  <section id="tab-jobs" class="tab">
+    <div class="card">
+      <div class="filters">
+        <label>ตั้งแต่ <input type="date" id="jf-from"></label>
+        <label>ถึง <input type="date" id="jf-to"></label>
+        <label>ผู้บรรจุ <select id="jf-packer"><option value="">ทั้งหมด</option></select></label>
+        <label>สถานะ <select id="jf-status">
+          <option value="">ทั้งหมด</option><option value="packed">รอตรวจ</option>
+          <option value="checked">ตรวจแล้ว</option><option value="cancelled">ยกเลิก</option>
+        </select></label>
+        <label>ค้นหา Lot <input id="jf-lot" placeholder="เช่น A123"></label>
+        <button id="jf-go">ค้นหา</button>
+        <label>ผู้ตรวจ <select id="jf-checker"></select></label>
+      </div>
+      <div id="jobs-table"></div>
+    </div>
+  </section>
+
+  <!-- ภาระงาน -->
+  <section id="tab-report" class="tab">
+    <div class="card">
+      <div class="filters">
+        <label>ตั้งแต่ <input type="date" id="rp-from"></label>
+        <label>ถึง <input type="date" id="rp-to"></label>
+        <button id="rp-go">แสดง</button>
+        <button id="rp-csv">ดาวน์โหลด CSV</button>
+      </div>
+      <p class="muted">แต้มภาระงาน = จำนวนซอง × แต้มต่อซอง (ตั้งในหน้าข้อมูลยา) ใช้เทียบงานที่ยากง่ายต่างกัน เช่น unit dose ต่อซองใช้เวลามากกว่า</p>
+      <div id="report-table"></div>
+    </div>
+  </section>
+
+  <!-- ข้อมูลยา -->
+  <section id="tab-drugs" class="tab">
+    <div class="grid2">
+      <form id="drug-form" class="card">
+        <h2 id="drug-form-title">เพิ่มยา</h2>
+        <input type="hidden" id="dg-id">
+        <label>ชื่อยา <input id="dg-name" required></label>
+        <div class="row">
+          <label>ความแรง <input id="dg-strength" placeholder="500 mg"></label>
+          <label>รหัส HIS <input id="dg-code"></label>
+        </div>
+        <div class="row">
+          <label>รูปแบบ <select id="dg-form">
+            <option value="tablet">เม็ด</option><option value="capsule">แคปซูล</option>
+            <option value="cream">ครีม/ขี้ผึ้ง</option><option value="other">อื่นๆ</option>
+          </select></label>
+          <label>หน่วย <input id="dg-unit" placeholder="เม็ด / g"></label>
+          <label>อายุหลังแบ่ง (วัน) <input type="number" id="dg-bud" min="1" value="180" required></label>
+        </div>
+        <label id="dg-active-wrap" hidden><input type="checkbox" id="dg-active"> ใช้งาน</label>
+        <div id="dg-sizes-new">
+          <div>ขนาดบรรจุเริ่มต้น (แก้ภายหลังได้)</div>
+          <input id="dg-sizes" placeholder="เช่น prepack:30,60,100 unitdose:1,2 cream:5">
+        </div>
+        <div class="row">
+          <button type="submit" class="primary">บันทึก</button>
+          <button type="button" id="dg-reset">ล้างฟอร์ม</button>
+        </div>
+        <div id="dg-msg" class="msg"></div>
+      </form>
+      <div class="card">
+        <h2>รายการยา</h2>
+        <label><input type="checkbox" id="dg-show-all"> แสดงที่ปิดใช้งาน</label>
+        <div id="drugs-list"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- เจ้าหน้าที่ -->
+  <section id="tab-staff" class="tab">
+    <div class="grid2">
+      <form id="staff-form" class="card">
+        <h2 id="staff-form-title">เพิ่มเจ้าหน้าที่</h2>
+        <input type="hidden" id="sf-id">
+        <label>ชื่อ-สกุล <input id="sf-name" required></label>
+        <div class="row">
+          <label>ชื่อย่อบนฉลาก <input id="sf-short" maxlength="30"></label>
+          <label>รหัส <input id="sf-code"></label>
+        </div>
+        <label>ตำแหน่ง <select id="sf-role">
+          <option value="packer">เจ้าพนักงาน/ผู้บรรจุ</option><option value="pharmacist">เภสัชกร</option>
+        </select></label>
+        <label id="sf-active-wrap" hidden><input type="checkbox" id="sf-active"> ใช้งาน</label>
+        <div class="row">
+          <button type="submit" class="primary">บันทึก</button>
+          <button type="button" id="sf-reset">ล้างฟอร์ม</button>
+        </div>
+        <div id="sf-msg" class="msg"></div>
+      </form>
+      <div class="card">
+        <h2>เจ้าหน้าที่</h2>
+        <div id="staff-list"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ตั้งค่าฉลาก -->
+  <section id="tab-label" class="tab">
+    <div class="grid2">
+      <form id="label-form" class="card">
+        <h2>ตำแหน่งสติกเกอร์ (มม.)</h2>
+        <div class="row">
+          <label>กว้างแผ่น <input type="number" step="0.1" id="lb-frame_width"></label>
+          <label>สูงแผ่น <input type="number" step="0.1" id="lb-frame_height"></label>
+          <label>ส่วนหัวทิ้ง <input type="number" step="0.1" id="lb-header_height"></label>
+        </div>
+        <div class="row">
+          <label>แถว <input type="number" id="lb-rows"></label>
+          <label>คอลัมน์ <input type="number" id="lb-cols"></label>
+          <label>ขนาดอักษร (pt) <input type="number" step="0.1" id="lb-font_size"></label>
+        </div>
+        <div class="row">
+          <label>ช่องว่างแนวนอน <input type="number" step="0.1" id="lb-gap_x"></label>
+          <label>ช่องว่างแนวตั้ง <input type="number" step="0.1" id="lb-gap_y"></label>
+          <label>ขอบใน <input type="number" step="0.1" id="lb-padding"></label>
+        </div>
+        <div class="row">
+          <label>เลื่อนขวา (+) <input type="number" step="0.1" id="lb-offset_x"></label>
+          <label>เลื่อนลง (+) <input type="number" step="0.1" id="lb-offset_y"></label>
+        </div>
+        <label><input type="checkbox" id="lb-buddhist_year"> ปี พ.ศ.</label>
+        <label><input type="checkbox" id="lb-show_packer"> แสดงชื่อผู้บรรจุ</label>
+        <div class="row">
+          <button type="submit" class="primary">บันทึก</button>
+          <button type="button" id="lb-default">ค่าเริ่มต้น</button>
+        </div>
+        <div id="lb-msg" class="msg"></div>
+      </form>
+      <div class="card">
+        <h2>ตัวอย่าง (ขนาดจริงบนจอ ~ 2 เท่า)</h2>
+        <div id="lb-preview" class="preview"></div>
+        <p class="muted" id="lb-cell-size"></p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script src="common.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

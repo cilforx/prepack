@@ -1,0 +1,55 @@
+/* Label frames — measured in mm so print output matches the sticker roll. */
+.lb-frame {
+  position: relative;
+  overflow: hidden;
+  background: #fff;
+  color: #000;
+  font-family: 'Sarabun', 'Tahoma', sans-serif;
+  page-break-after: always;
+  break-after: page;
+}
+.lb-frame:last-child { page-break-after: auto; break-after: auto; }
+.lb-inner { position: absolute; }
+.lb-cell {
+  position: absolute;
+  box-sizing: border-box;
+  overflow: hidden;
+  line-height: 1.12;
+  white-space: nowrap;
+}
+.lb-cell > div { overflow: hidden; text-overflow: ellipsis; }
+.lb-name { font-weight: 700; font-size: 1.1em; }
+.lb-row { display: flex; justify-content: space-between; gap: 0.5mm; }
+.lb-row span:last-child { overflow: hidden; text-overflow: ellipsis; }
+.lb-exp { font-weight: 700; }
+
+.lb-frame.outline { outline: 0.2mm dashed #999; }
+.lb-frame.outline .lb-cell { outline: 0.2mm solid #2a7de1; }
+.lb-header {
+  position: absolute; left: 0; top: 0;
+  background: repeating-linear-gradient(45deg, #eee, #eee 2mm, #fff 2mm, #fff 4mm);
+  font-size: 6pt; color: #888;
+  display: flex; align-items: center; justify-content: center;
+}
+
+/* Print page chrome */
+body.print-page { margin: 0; background: #e9ecef; font-family: 'Sarabun', sans-serif; }
+.print-bar {
+  position: sticky; top: 0; z-index: 1;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 12px;
+  padding: 10px 16px; background: #fff; border-bottom: 1px solid #ccc; font-size: 14px;
+}
+.print-bar input[type=number] { width: 70px; }
+.print-bar button { padding: 6px 16px; font-size: 15px; cursor: pointer; }
+.print-bar .hint { color: #666; font-size: 12px; }
+.print-bar .warn { color: #c0392b; font-weight: 700; }
+#sheets { padding: 16px; display: flex; flex-wrap: wrap; gap: 8px; }
+#sheets .lb-frame { box-shadow: 0 1px 3px rgba(0,0,0,.25); }
+
+@media print {
+  body.print-page { background: #fff; }
+  .no-print { display: none !important; }
+  #sheets { padding: 0; display: block; }
+  #sheets .lb-frame { box-shadow: none; }
+  .lb-frame.outline .lb-header { display: none; }
+}

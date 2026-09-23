@@ -1,0 +1,5 @@
+.env
+/bin/
+/prepack
+/prepack.exe
+*.log

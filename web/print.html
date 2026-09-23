@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>พิมพ์ฉลาก — PrePack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="labels.css">
+<style id="page-size"></style>
+</head>
+<body class="print-page">
+<div class="print-bar no-print">
+  <div id="job-info">กำลังโหลด…</div>
+  <label>จำนวนดวง <input type="number" id="copies" min="1" max="2000"></label>
+  <label>เริ่มที่ดวงที่ <input type="number" id="start" min="1" value="1"></label>
+  <label><input type="checkbox" id="outline"> แสดงเส้นขอบ (ทดสอบตำแหน่ง)</label>
+  <button id="btn-print">🖨 พิมพ์</button>
+  <span class="hint">ตั้งค่าเครื่องพิมพ์: ขนาดกระดาษตามสติกเกอร์, Margin = None, Scale = 100%</span>
+</div>
+<div id="sheets"></div>
+<script src="common.js"></script>
+<script src="print.js"></script>
+</body>
+</html>

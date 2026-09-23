@@ -44,29 +44,30 @@ TAB_LOADERS.staff = function () {
     if (!app.staff.length) { $('st-list').innerHTML = '<p class="muted">ยังไม่มีเจ้าหน้าที่</p>'; return; }
     $('st-list').innerHTML = '<table><thead><tr><th>ชื่อ</th><th>บนฉลาก</th><th>สถานะ</th><th></th></tr></thead><tbody>' +
       app.staff.map(s => '<tr><td>' + esc(s.name) + '</td><td>' + esc(s.shortName) + '</td><td>' +
-        (s.active ? 'ใช้งาน' : '<span class="muted">ปิด</span>') + '</td><td><button class="small" data-edit="' + s.id +
+        (s.active ? 'ใช้งาน' : '<span class="muted">ปิด</span>') + '</td><td><button class="small" data-edit="' + esc(s.uid) +
         '">แก้ไข</button></td></tr>').join('') + '</tbody></table>';
   };
   list();
 
   $('st-list').addEventListener('click', e => {
-    const id = e.target.dataset.edit;
-    if (!id) return;
-    const s = app.staff.find(x => String(x.id) === id);
-    $('st-id').value = s.id; $('st-name').value = s.name; $('st-short').value = s.shortName;
+    const uid = e.target.dataset.edit;
+    if (!uid) return;
+    const s = app.staff.find(x => x.uid === uid);
+    $('st-id').value = s.uid; $('st-name').value = s.name; $('st-short').value = s.shortName;
     $('st-active').checked = s.active; $('st-active-wrap').hidden = false; $('st-title').textContent = 'แก้ไขเจ้าหน้าที่';
     $('st-name').focus();
   });
   $('st-reset').addEventListener('click', () => { reset(); formMsg('st-msg', ''); });
   $('st-save').addEventListener('click', async () => {
     try {
-      const staff = await call('SaveStaff', JSON.stringify({
-        id: Number($('st-id').value) || 0, name: $('st-name').value, shortName: $('st-short').value,
+      const r = await call('SaveStaff', JSON.stringify({
+        uid: $('st-id').value, name: $('st-name').value, shortName: $('st-short').value,
         active: $('st-id').value ? $('st-active').checked : true,
       }));
-      onConfigChanged(null, staff);
+      onConfigChanged(null, r.staff);
+      setSyncStatus(r.sync);
       reset(); list();
-      formMsg('st-msg', 'บันทึกแล้ว', 'ok');
+      formMsg('st-msg', r.online ? 'บันทึกลง server แล้ว' : 'บันทึกในเครื่องแล้ว (จะส่งขึ้น server เมื่อเชื่อมได้)', 'ok');
     } catch (e) { formMsg('st-msg', e.message, 'err'); }
   });
 };
@@ -74,11 +75,18 @@ TAB_LOADERS.staff = function () {
 // ── Sticker layout + printer ──
 
 const LAYOUT_FIELDS = [
-  ['frameWidth', 'กว้างแผ่น (มม.)', 0.1], ['frameHeight', 'สูงแผ่น (มม.)', 0.1], ['headerHeight', 'ส่วนหัวที่ฉีกทิ้ง (มม.)', 0.1],
+  ['frameWidth', 'กว้างแผ่น (มม.)', 0.1], ['frameHeight', 'สูงแผ่น (มม.)', 0.1],
+  ['headerHeight', 'ส่วนหัว ฉีกทิ้ง (มม.)', 0.1], ['footerHeight', 'ส่วนท้าย ฉีกทิ้ง (มม.)', 0.1],
   ['rows', 'จำนวนแถว', 1], ['cols', 'จำนวนคอลัมน์', 1], ['fontSize', 'ขนาดอักษร (pt)', 0.1],
   ['gapX', 'ช่องว่างแนวนอน (มม.)', 0.1], ['gapY', 'ช่องว่างแนวตั้ง (มม.)', 0.1], ['padding', 'ขอบในดวง (มม.)', 0.1],
   ['offsetX', 'เลื่อนขวา + / ซ้าย − (มม.)', 0.1], ['offsetY', 'เลื่อนลง + / ขึ้น − (มม.)', 0.1],
 ];
+
+// "13, 13, 14" → [13, 13, 14]; blank → [] (= split evenly). Accepts spaces or commas.
+function parseSizes(text) {
+  return String(text || '').split(/[,\s]+/).filter(Boolean).map(Number);
+}
+function sizesText(list) { return (list || []).map(fmtNum).join(', '); }
 
 TAB_LOADERS.label = async function () {
   const l = app.config.layout;
@@ -87,9 +95,18 @@ TAB_LOADERS.label = async function () {
     '<button id="lb-refresh" class="small">โหลดรายชื่อใหม่</button></div>' +
     '<p class="note">พิมพ์แบบ silent ไปที่เครื่องนี้โดยตรง ขนาดกระดาษ = ขนาดแผ่นด้านล่าง ไม่มีขอบ ไม่มี header/footer</p></div>' +
     '<div class="card"><h3>ขนาดสติกเกอร์</h3><div class="grid">' +
-    LAYOUT_FIELDS.map(([k, t, step]) => '<label class="fld">' + t + '<input type="number" step="' + step + '" id="lb-' + k + '" value="' + l[k] + '"></label>').join('') +
+    LAYOUT_FIELDS.map(([k, t, step]) => '<label class="fld">' + t + '<input type="number" step="' + step + '" id="lb-' + k + '" value="' + (l[k] || 0) + '"></label>').join('') +
     '<label class="check"><input type="checkbox" id="lb-buddhistYear"' + (l.buddhistYear ? ' checked' : '') + '> ปี พ.ศ.</label>' +
-    '</div><div class="row" style="margin-top:12px"><button class="primary" id="lb-save">บันทึก</button>' +
+    '</div>' +
+    '<h3 style="margin-top:20px">ขนาดแต่ละแถว / คอลัมน์ <span class="muted">(เว้นว่าง = แบ่งเท่ากัน · คั่นด้วย , เช่น 13, 13, 14)</span></h3>' +
+    '<div class="grid" style="grid-template-columns:1fr 1fr">' +
+    '<label class="fld">ความสูงแต่ละแถว บน→ล่าง (มม.)<input id="lb-rowHeights" value="' + esc(sizesText(l.rowHeights)) + '"></label>' +
+    '<label class="fld">ความกว้างแต่ละคอลัมน์ ซ้าย→ขวา (มม.)<input id="lb-colWidths" value="' + esc(sizesText(l.colWidths)) + '"></label>' +
+    '<div class="note" id="lb-rowinfo" style="margin:0"></div><div class="note" id="lb-colinfo" style="margin:0"></div>' +
+    '<div><button type="button" class="small" id="lb-row-even">ใส่ค่าแบ่งเท่ากัน</button></div>' +
+    '<div><button type="button" class="small" id="lb-col-even">ใส่ค่าแบ่งเท่ากัน</button></div>' +
+    '</div>' +
+    '<div class="row" style="margin-top:16px"><button class="primary" id="lb-save">บันทึก</button>' +
     '<button id="lb-default">ค่าเริ่มต้น 85×50 มม. 3×3</button></div><div id="lb-msg" class="form-msg"></div></div>' +
     '<div class="card"><h3>ตัวอย่าง <span class="muted" id="lb-cell"></span></h3><div id="lb-preview" class="label-preview"></div>' +
     '<p class="note">กด "ทดสอบตำแหน่ง" ที่หน้าหลักเพื่อพิมพ์เส้นขอบ ถ้าเลื่อน ให้แก้ค่า "เลื่อนขวา / เลื่อนลง"</p></div>';
@@ -98,17 +115,35 @@ TAB_LOADERS.label = async function () {
     const o = {};
     LAYOUT_FIELDS.forEach(([k]) => { o[k] = Number($('lb-' + k).value); });
     o.buddhistYear = $('lb-buddhistYear').checked;
+    o.rowHeights = parseSizes($('lb-rowHeights').value);
+    o.colWidths = parseSizes($('lb-colWidths').value);
     return o;
+  };
+  // How much room the rows/columns have, so the user knows what numbers fit.
+  const info = o => {
+    const rs = rowSpace(o), cs = colSpace(o);
+    const used = (list, n) => list.length === n ? ' · ใส่แล้วรวม ' + fmtNum(sumOf(list)) + ' มม.' : list.length ? ' · ใส่ ' + list.length + '/' + n + ' ค่า' : '';
+    $('lb-rowinfo').textContent = 'ที่ว่าง ' + fmtNum(rs) + ' มม. (แบ่งเท่ากัน = แถวละ ' + fmtNum(rs / o.rows) + ')' + used(o.rowHeights, o.rows);
+    $('lb-colinfo').textContent = 'ที่ว่าง ' + fmtNum(cs) + ' มม. (แบ่งเท่ากัน = คอลัมน์ละ ' + fmtNum(cs / o.cols) + ')' + used(o.colWidths, o.cols);
   };
   const preview = () => {
     const o = read();
+    info(o);
     const err = validateLayout(o);
     if (err) { $('lb-preview').innerHTML = '<p class="form-msg err">' + esc(err) + '</p>'; $('lb-cell').textContent = ''; return; }
     const sample = { drugName: 'Amoxicillin/Clavulanate 1 g (Augmentin)', qty: 100, lotNo: 'A12345',
       packer: 'สมชาย ใจดีมากมาก', packDate: app.today, labelExp: addDaysISO(app.today, 365) };
     $('lb-preview').innerHTML = buildFrames(sample, o, o.rows * o.cols, true);
-    $('lb-cell').textContent = '· ขนาดดวง ' + fmtNum(cellWidth(o)) + ' × ' + fmtNum(cellHeight(o)) + ' มม.';
+    const hs = rowHeightsOf(o), ws = colWidthsOf(o);
+    $('lb-cell').textContent = '· แถวสูง ' + hs.map(fmtNum).join(' / ') + ' · คอลัมน์กว้าง ' + ws.map(fmtNum).join(' / ') + ' มม.';
   };
+  // Even split rounded to 0.1 mm; the last one takes the remainder so the total still fits exactly.
+  const evenList = (space, n) => {
+    const each = Math.floor(space / n * 10) / 10;
+    return Array.from({ length: n }, (_, i) => i < n - 1 ? each : Math.round((space - each * (n - 1)) * 10) / 10);
+  };
+  $('lb-row-even').onclick = () => { const o = read(); $('lb-rowHeights').value = sizesText(evenList(rowSpace(o), o.rows)); preview(); };
+  $('lb-col-even').onclick = () => { const o = read(); $('lb-colWidths').value = sizesText(evenList(colSpace(o), o.cols)); preview(); };
   const loadPrinters = async () => {
     try {
       const printers = await call('GetPrinters');
@@ -121,9 +156,10 @@ TAB_LOADERS.label = async function () {
 
   $('tab-label').oninput = preview; // the tab container is reused, so assign rather than add listeners
   $('lb-default').addEventListener('click', () => {
-    const d = { frameWidth: 85, frameHeight: 50, headerHeight: 8, rows: 3, cols: 3, gapX: 1, gapY: 1,
+    const d = { frameWidth: 85, frameHeight: 50, headerHeight: 8, footerHeight: 0, rows: 3, cols: 3, gapX: 1, gapY: 1,
       offsetX: 0, offsetY: 0, padding: 0.8, fontSize: 5.5 };
     Object.keys(d).forEach(k => { $('lb-' + k).value = d[k]; });
+    $('lb-rowHeights').value = ''; $('lb-colWidths').value = '';
     preview();
   });
   $('lb-refresh').addEventListener('click', loadPrinters);
@@ -138,6 +174,35 @@ TAB_LOADERS.label = async function () {
   });
   preview();
   await loadPrinters();
+};
+
+// ── Screen zoom (this machine only, like BoxBox "ขนาดแสดงผล"; does not change printed stickers) ──
+
+const ZOOM_STEPS = [50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100, 110, 125, 150];
+
+TAB_LOADERS.display = async function () {
+  let current = app.config.uiZoomPercent || 100;
+  try { current = await call('GetUiZoom'); } catch (e) { /* use the value from start-up */ }
+  const render = () => {
+    $('tab-display').innerHTML =
+      '<div class="card"><h3>🔍 ขนาดแสดงผล <span class="muted">(เฉพาะเครื่องนี้)</span></h3>' +
+      '<p class="note" style="margin-top:0">ปรับถ้าหน้าจอใหญ่หรือเล็กเกินไป — จำค่าไว้ในเครื่องนี้ ไม่ sync ข้ามเครื่อง ' +
+      'และไม่มีผลกับขนาดสติกเกอร์ที่พิมพ์ · ใช้ Ctrl + ลูกกลิ้งเมาส์ก็ได้ (จำค่าเหมือนกัน)</p>' +
+      '<div class="chips" style="margin-top:12px">' +
+      ZOOM_STEPS.map(v => '<button type="button" class="chip' + (v === current ? ' sel' : '') + '" data-zoom="' + v + '">' + v + '%</button>').join('') +
+      '</div><div id="zm-msg" class="form-msg"></div></div>';
+  };
+  render();
+  $('tab-display').onclick = async e => {
+    const v = Number(e.target.dataset.zoom);
+    if (!v) return;
+    try {
+      current = await call('SetUiZoom', v);
+      app.config.uiZoomPercent = current;
+      render();
+      formMsg('zm-msg', 'ตั้งเป็น ' + current + '% แล้ว', 'ok');
+    } catch (err) { formMsg('zm-msg', err.message, 'err'); }
+  };
 };
 
 // ── Drug types, shelf life, unit table, name keywords ──
@@ -239,8 +304,11 @@ function renderFactors(table) {
     'ค่าเริ่มต้น = 1 ทุกช่วง (ทุกดวงนับเท่ากัน) · ใช้ร่วมกันทุกเครื่อง (เก็บใน MySQL) · ' +
     'แก้แล้วมีผลกับการพิมพ์ครั้งต่อไปเท่านั้น ประวัติเดิมไม่เปลี่ยน</p>' +
     (locked
-      ? '<div class="row"><input type="password" id="wf-pass" placeholder="รหัสสำหรับแก้ไข" style="width:200px">' +
-        '<button id="wf-unlock">🔒 ปลดล็อกเพื่อแก้ไข</button></div>'
+      ? '<div class="row"><input type="password" id="wf-pass" placeholder="รหัสสำหรับแก้ไข" style="width:200px" ' +
+        'autocomplete="off" lang="en">' +
+        '<button type="button" class="icon-btn" id="wf-show" title="แสดง/ซ่อนรหัส" aria-label="แสดงรหัส">👁</button>' +
+        '<button id="wf-unlock">🔒 ปลดล็อกเพื่อแก้ไข</button></div>' +
+        '<div id="wf-hint" class="note"></div>'
       : '<div class="row"><span class="tag">ปลดล็อกแล้ว</span><button class="primary" id="wf-save">บันทึก</button>' +
         '<button id="wf-lock">ล็อก</button></div>') +
     '<div id="wf-msg" class="form-msg"></div></div>' + byType;
@@ -249,9 +317,13 @@ function renderFactors(table) {
   box.onclick = async e => {
     const t = e.target;
     if (t.id === 'wf-unlock') {
-      const pw = $('wf-pass').value;
+      const pw = $('wf-pass').value.trim();
       try { await call('CheckAdminPassword', pw); factorPassword = pw; renderFactors(readFactors(table)); }
-      catch (err) { formMsg('wf-msg', err.message, 'err'); }
+      catch (err) { formMsg('wf-msg', err.message + passwordHint(pw), 'err'); }
+    } else if (t.id === 'wf-show') {
+      const inp = $('wf-pass');
+      inp.type = inp.type === 'password' ? 'text' : 'password';
+      inp.focus();
     } else if (t.id === 'wf-lock') {
       factorPassword = null; renderFactors(app.workFactors);
     } else if (t.dataset.add) {
@@ -271,7 +343,20 @@ function renderFactors(table) {
       } catch (err) { formMsg('wf-msg', err.message, 'err'); }
     }
   };
-  if ($('wf-pass')) $('wf-pass').onkeydown = e => { if (e.key === 'Enter') $('wf-unlock').click(); };
+  if ($('wf-pass')) {
+    const hint = e => {
+      const caps = e && e.getModifierState && e.getModifierState('CapsLock');
+      $('wf-hint').textContent = (passwordHint($('wf-pass').value) + (caps ? ' · Caps Lock เปิดอยู่' : '')).replace(/^ · /, '');
+    };
+    $('wf-pass').onkeydown = e => { if (e.key === 'Enter') $('wf-unlock').click(); };
+    $('wf-pass').onkeyup = hint;
+    $('wf-pass').oninput = () => hint();
+  }
+}
+
+// Password fields hide what was typed, so warn about the usual reason a correct password fails.
+function passwordHint(pw) {
+  return /[฀-๿]/.test(pw) ? ' · แป้นพิมพ์เป็นภาษาไทยอยู่ — กด ~ เปลี่ยนเป็นภาษาอังกฤษ' : '';
 }
 
 // Current rows on screen → [{drugType, maxQty, factor}]; falls back to `table` before the first render.
@@ -286,13 +371,34 @@ function readFactors(table) {
 
 $('btn-close-settings').addEventListener('click', () => { factorPassword = null; });
 
+function renderSyncCard() {
+  const box = $('sy-card');
+  const s = app.sync;
+  if (!box || !s) return;
+  const rows = [
+    ['ฐานข้อมูลในเครื่อง', 'พร้อม (%APPDATA%\\PrePack\\prepack-local.db)'],
+    ['MySQL', s.configured ? (s.lastError ? '<span class="err-text">' + esc(s.lastError) + '</span>' : 'ตั้งค่าแล้ว') : 'ยังไม่ได้ตั้งค่า — บันทึกในเครื่องไปก่อน'],
+    ['sync ล่าสุด', s.lastSyncAt ? fmtThaiDate(s.lastSyncAt.slice(0, 10)) + ' ' + s.lastSyncAt.slice(11, 16) : '-'],
+    ['รอส่งขึ้น MySQL', s.unsynced + ' รายการ'],
+  ];
+  box.innerHTML = rows.map(([k, v]) => '<div class="muted">' + k + '</div><div>' + v + '</div>').join('');
+}
+
 // ── Database connections ──
 
 TAB_LOADERS.db = function () {
   const m = app.config.mysql, v = app.config.invs;
   const pw = has => has ? 'placeholder="(บันทึกไว้แล้ว — เว้นว่าง = ใช้รหัสเดิม)"' : '';
   $('tab-db').innerHTML =
-    '<div class="card"><h3>MySQL — ฐานข้อมูลของ PrePack (เจ้าหน้าที่ + บันทึกภาระงาน)</h3>' +
+    '<div class="card"><h3>การบันทึกและ sync</h3>' +
+    '<p class="note" style="margin-top:0">ทุกการพิมพ์บันทึกลงฐานข้อมูลในเครื่องนี้ก่อนเสมอ (SQLite) แล้ว sync ขึ้น MySQL ' +
+    'อัตโนมัติทุก 2 นาที · ข้อมูลในเครื่องเก็บไว้ต่อเป็น backup ไม่ถูกลบ</p>' +
+    '<div id="sy-card" class="kv"></div>' +
+    '<div class="row" style="margin-top:12px"><button class="primary" id="sy-now">Sync ตอนนี้</button>' +
+    '<button id="sy-resync">ส่งข้อมูลในเครื่องขึ้นใหม่ทั้งหมด (กู้คืน)</button></div>' +
+    '<div id="sy-msg" class="form-msg"></div></div>' +
+
+    '<div class="card"><h3>MySQL — ฐานข้อมูลกลางของ PrePack (รวมทุกเครื่อง)</h3>' +
     '<div class="grid">' +
     '<label class="fld">Host<input id="my-host" value="' + esc(m.host) + '"></label>' +
     '<label class="fld">Port<input id="my-port" type="number" value="' + m.port + '"></label>' +
@@ -337,13 +443,33 @@ TAB_LOADERS.db = function () {
         host: $('my-host').value, port: Number($('my-port').value), user: $('my-user').value,
         password: $('my-pass').value, database: $('my-db').value,
       }));
-      app.dbReady = true;
       onConfigChanged(r.config, r.staff, r.workFactors);
-      setDbStatus(null, 0);
+      setSyncStatus(r.sync);
+      renderSyncCard();
       $('my-pass').value = '';
-      formMsg('my-msg', 'เชื่อมต่อได้ · ' + (r.applied.length ? 'สร้าง/อัปเดตตาราง: ' + r.applied.join(', ') : 'ตารางครบแล้ว'), 'ok');
+      formMsg('my-msg', 'เชื่อมต่อได้ · ' + (r.applied.length ? 'สร้าง/อัปเดตตาราง: ' + r.applied.join(', ') : 'ตารางครบแล้ว') +
+        ' · sync ข้อมูลในเครื่องขึ้นแล้ว', 'ok');
     } catch (e) { formMsg('my-msg', e.message, 'err'); }
   });
+  $('sy-now').addEventListener('click', async () => {
+    formMsg('sy-msg', 'กำลัง sync…');
+    try {
+      const r = await call('SyncNow');
+      onConfigChanged(null, r.staff, r.workFactors);
+      setSyncStatus(r.sync); renderSyncCard();
+      formMsg('sy-msg', 'sync เรียบร้อย', 'ok');
+    } catch (e) { formMsg('sy-msg', e.message, 'err'); pollSync().then(renderSyncCard); }
+  });
+  $('sy-resync').addEventListener('click', async () => {
+    if (!confirm('ส่งข้อมูลการพิมพ์ทั้งหมดในเครื่องนี้ขึ้น MySQL ใหม่?\n(ใช้กู้คืนเมื่อ server ถูกล้าง — รายการที่มีอยู่แล้วจะไม่ซ้ำ)')) return;
+    formMsg('sy-msg', 'กำลังส่ง…');
+    try {
+      const r = await call('ResyncAll');
+      setSyncStatus(r.sync); renderSyncCard();
+      formMsg('sy-msg', r.sync.lastError ? r.sync.lastError : 'ส่งขึ้นใหม่ ' + r.queued + ' รายการแล้ว', r.sync.lastError ? 'err' : 'ok');
+    } catch (e) { formMsg('sy-msg', e.message, 'err'); }
+  });
+  renderSyncCard();
   $('iv-find').addEventListener('click', async () => {
     try { const r = await call('FindInvsIni'); onConfigChanged(r.config); fillInvs(r.config); formMsg('iv-msg', 'อ่าน invs.ini แล้ว — กดทดสอบ + บันทึก', 'ok'); }
     catch (e) { formMsg('iv-msg', e.message, 'err'); }

@@ -3,9 +3,9 @@
 const app = {
   today: '',
   config: null,          // safe config from C# (no passwords)
-  staff: [],
-  workFactors: [],       // [{drugType, maxQty|null, factor}] from MySQL
-  dbReady: false,
+  staff: [],             // [{uid, name, shortName, active}] from the local database
+  workFactors: [],       // [{drugType, maxQty|null, factor}] local copy, synced with MySQL
+  sync: null,            // {configured, running, lastSyncAt, lastError, unsynced, inBackoff}
   drug: null,            // {source:'INVS'|'MANUAL', workingCode, drugName}
   lots: [],              // INVS lots for the chosen drug
   expEdited: false,      // user typed the label EXP themselves
@@ -35,25 +35,49 @@ async function init() {
     app.config = d.config;
     app.staff = d.staff || [];
     app.workFactors = d.workFactors || [];
-    app.dbReady = d.dbReady;
     $('version').textContent = 'PrePack v' + d.version + ' · ' + d.machine;
     renderStaffSelect();
     renderTypeSelect();
-    setDbStatus(d.dbError, d.pendingLogs);
+    setSyncStatus(d.sync);
     $('pages').value = 1;
     syncStickersFromPages();
     render();
-    if (!d.dbReady) openSettings('db');
+    if (!app.staff.length) openSettings('staff');
+    setInterval(pollSync, 20000);
   } catch (e) {
     setMsg($('msg'), 'เริ่มโปรแกรมไม่สำเร็จ: ' + e.message, 'err');
   }
 }
 
-function setDbStatus(error, pending) {
+// Footer chip: where records are going. Local always works; MySQL is the shared copy.
+function setSyncStatus(s) {
+  if (!s) return;
+  app.sync = s;
   const el = $('db-status');
-  if (error) { el.textContent = '⚠ ' + error; el.className = 'muted err'; return; }
-  el.textContent = pending > 0 ? 'รอส่งบันทึก ' + pending + ' รายการ' : '';
-  el.className = 'muted';
+  let text, cls = 'sync-chip';
+  if (!s.configured) { text = 'บันทึกในเครื่อง (ยังไม่ตั้ง MySQL)'; cls += ' warn'; }
+  else if (s.lastError && s.unsynced > 0) { text = 'MySQL ไม่ตอบ · รอส่ง ' + s.unsynced + ' รายการ'; cls += ' err'; }
+  else if (s.lastError) { text = 'MySQL ไม่ตอบ'; cls += ' err'; }
+  else if (s.unsynced > 0) { text = s.running ? 'กำลัง sync…' : 'รอส่ง ' + s.unsynced + ' รายการ'; }
+  else { text = s.lastSyncAt ? 'sync แล้ว ' + s.lastSyncAt.slice(11, 16) : 'MySQL พร้อม'; cls += ' ok'; }
+  el.textContent = text;
+  el.className = cls;
+  el.title = s.lastError || '';
+}
+
+// Every 20 s: show sync status; after a background sync brought in changes from other machines
+// (new staff, new factors), refresh the lists without touching what the user is typing.
+async function pollSync() {
+  try {
+    const before = app.sync && app.sync.lastSyncAt;
+    const s = await call('SyncStatus');
+    setSyncStatus(s);
+    if (s.lastSyncAt && s.lastSyncAt !== before) {
+      const snap = await call('Snapshot');
+      app.workFactors = snap.workFactors;
+      if (JSON.stringify(snap.staff) !== JSON.stringify(app.staff)) { app.staff = snap.staff; renderStaffSelect(); }
+    }
+  } catch (e) { /* status only */ }
 }
 
 // Called by settings.js after anything that changes config / staff.
@@ -69,11 +93,11 @@ function onConfigChanged(config, staff, workFactors) {
 
 function renderStaffSelect() {
   const sel = $('staff');
-  const prev = sel.value || String(app.config.lastStaffId || '');
+  const prev = sel.value || app.config.lastStaffUid || '';
   const active = app.staff.filter(s => s.active);
   sel.innerHTML = '<option value="">— เลือก —</option>' +
-    active.map(s => '<option value="' + s.id + '">' + esc(s.name) + '</option>').join('');
-  if (active.some(s => String(s.id) === prev)) sel.value = prev;
+    active.map(s => '<option value="' + esc(s.uid) + '">' + esc(s.name) + '</option>').join('');
+  if (active.some(s => s.uid === prev)) sel.value = prev;
   sel.classList.toggle('invalid', !sel.value);
 }
 
@@ -118,6 +142,8 @@ const searchDrugs = debounce(async q => {
 $('drug').addEventListener('input', () => {
   app.drug = null;
   $('drug-source').textContent = '';
+  $('label-name').value = '';
+  $('label-saved').textContent = '';
   searchDrugs($('drug').value);
   render();
 });
@@ -166,6 +192,7 @@ async function chooseInvs(r) {
   $('drug-source').textContent = 'INVS ' + r.workingCode;
   $('drug-source').className = 'tag';
   setType(r.drugType);
+  loadDrugLabel();
   app.lots = [];
   $('lot').value = '';
   $('src-exp').value = '';
@@ -203,10 +230,51 @@ async function chooseManual(name) {
   $('lot-list').innerHTML = '';
   app.expEdited = false;
   try { setType(await call('ClassifyName', name)); } catch (e) { setType(''); }
+  loadDrugLabel();
   loadQtyChips();
   updateExpiry();
   render();
 }
+
+// ── Short sticker name (remembered per drug, shared by all machines via the server) ──
+
+function drugKeyPayload(extra) {
+  return JSON.stringify(Object.assign({ source: app.drug.source, workingCode: app.drug.workingCode,
+    drugName: app.drug.drugName }, extra || {}));
+}
+
+function showLabelSaved(saved) {
+  $('label-saved').textContent = saved ? 'จำไว้' : '';
+}
+
+async function loadDrugLabel() {
+  if (!app.drug) return;
+  const drug = app.drug;
+  $('label-name').value = drug.drugName;
+  showLabelSaved(false);
+  try {
+    const r = await call('GetDrugLabel', drugKeyPayload());
+    if (app.drug !== drug) return; // user already picked another drug
+    if (r.labelName) { $('label-name').value = r.labelName; showLabelSaved(true); }
+    render();
+  } catch (e) { /* keep the full name */ }
+}
+
+// Saved when the user leaves the field (or presses Enter); an empty field or the full name = "use the full name".
+async function saveDrugLabel() {
+  if (!app.drug) return;
+  try {
+    const r = await call('SaveDrugLabel', drugKeyPayload({ labelName: $('label-name').value }));
+    if (!r.labelName) $('label-name').value = app.drug.drugName;
+    showLabelSaved(!!r.labelName);
+    setSyncStatus(r.sync);
+    render();
+  } catch (e) { setMsg($('msg'), e.message, 'err'); }
+}
+
+$('label-name').addEventListener('input', render);
+$('label-name').addEventListener('change', saveDrugLabel);
+$('label-name').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); $('label-name').blur(); } });
 
 function setType(key) {
   $('drug-type').value = key || '';
@@ -267,7 +335,7 @@ function updateExpiry() {
 async function loadQtyChips() {
   const t = typeDef($('drug-type').value);
   let qtys = t ? t.qtyPresets.slice() : [];
-  if (app.drug && app.dbReady) {
+  if (app.drug) {
     try {
       const freq = await call('FrequentQty', app.drug.workingCode || '', app.drug.drugName);
       qtys = freq.concat(qtys.filter(q => !freq.includes(q)));
@@ -319,16 +387,16 @@ function stickerCount() {
 
 $('staff').addEventListener('change', () => {
   $('staff').classList.toggle('invalid', !$('staff').value);
-  call('SetLastStaff', Number($('staff').value) || 0).catch(() => {});
+  call('SetLastStaff', $('staff').value).catch(() => {});
   render();
 });
 
 // ── Preview ──
 
 function currentLabel() {
-  const staff = app.staff.find(s => String(s.id) === $('staff').value);
+  const staff = app.staff.find(s => s.uid === $('staff').value);
   return {
-    drugName: app.drug ? app.drug.drugName : ($('drug').value.trim() || 'ชื่อยา'),
+    drugName: $('label-name').value.trim() || (app.drug ? app.drug.drugName : ($('drug').value.trim() || 'ชื่อยา')),
     qty: $('qty').value || '?',
     lotNo: $('lot').value.trim().toUpperCase() || '-',
     packer: staff ? staff.shortName : '-',
@@ -400,7 +468,7 @@ async function doPrint(test) {
   setMsg(msg, 'กำลังพิมพ์…');
   try {
     const r = await call('Print', JSON.stringify(test ? { test: true, pages: 1, stickers: perFrame() } : {
-      staffId: Number($('staff').value),
+      staffUid: $('staff').value,
       source: app.drug.source,
       workingCode: app.drug.workingCode,
       drugName: app.drug.drugName,
@@ -412,11 +480,10 @@ async function doPrint(test) {
       packDate: app.today,
       pages, stickers: count,
     }));
-    const pts = test ? 0 : count * workFactorFor($('drug-type').value, Number($('qty').value));
     if (test) setMsg(msg, 'พิมพ์ทดสอบแล้ว — ถ้าเลื่อน ให้ปรับที่ ⚙ → สติกเกอร์', 'ok');
-    else if (r.queued) setMsg(msg, 'พิมพ์แล้ว ' + count + ' ดวง — บันทึกภาระงานไว้ในเครื่อง จะส่งเข้า MySQL เมื่อเชื่อมต่อได้', 'err');
-    else setMsg(msg, 'พิมพ์แล้ว ' + count + ' ดวง (' + pages + ' หน้า) · บันทึกภาระงาน ' + fmtNum(pts) + ' แต้ม', 'ok');
-    if (!test) setDbStatus(null, r.pendingLogs || 0);
+    else setMsg(msg, 'พิมพ์แล้ว ' + count + ' ดวง (' + pages + ' หน้า) · ' + fmtNum(r.points) + ' แต้ม · ' +
+      (r.online ? 'บันทึกลง server แล้ว' : 'บันทึกในเครื่อง (จะส่งขึ้น server เมื่อเชื่อมได้)'), 'ok');
+    setSyncStatus(r.sync);
   } catch (e) {
     setMsg(msg, e.message, 'err');
     if (/วันที่เปลี่ยนแล้ว/.test(e.message)) {

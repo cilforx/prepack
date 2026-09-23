@@ -9,7 +9,13 @@
 - C# .NET 10 (LTS) WinForms + WebView2, exe ไฟล์เดียว (self-contained, ไม่บีบอัด)
 - UI: plain HTML/CSS/JS ใน `src/PrePack/wwwroot/` ฝังเป็น EmbeddedResource เสิร์ฟที่ `https://prepack.app/` — no build step, no CDN
 - JS ↔ C#: `window.chrome.webview.hostObjects.bridge` → `Bridge/WebBridge.cs` (คืน JSON `{ok,data}` / `{ok:false,error}`)
-- MySQL (ของ PrePack เอง) ผ่าน MySqlConnector · INVS (SQL Server, อ่านอย่างเดียว) ผ่าน Microsoft.Data.SqlClient
+- บันทึกลง **SQLite ในเครื่องก่อนเสมอ** (`Data/LocalDb.cs`, Microsoft.Data.Sqlite) แล้ว `Data/SyncService.cs` sync ขึ้น
+  MySQL (ของ PrePack เอง, MySqlConnector) เบื้องหลัง — กฎ merge อยู่ใน `Domain/SyncRules.cs`
+- INVS (SQL Server, อ่านอย่างเดียว) ผ่าน Microsoft.Data.SqlClient
+- UI สไตล์ Gmail (Material 3 `gm3-sys-color` tokens อยู่ต้น `wwwroot/css/style.css`) — ช่องค้นหายา = search pill,
+  ปุ่มพิมพ์ = ปุ่ม Compose, เมนู ⚙ = แถบซ้ายแบบ Gmail settings
+- ฟอนต์ UI ฝังใน exe: Roboto (latin) + Noto Sans Thai (thai) แบบ variable woff2 ใน `wwwroot/fonts/` (OFL 1.1 — ต้องเก็บ OFL-*.txt ไว้)
+- ดูตัวอย่างโดยไม่ build: เปิด `wwwroot/index.html#demo` / `#open=report` (mock bridge) และ `wwwroot/dev/label-preview.html`
 - Config เครื่อง: `%APPDATA%\PrePack\config.json` (seed ฝังใน exe: `seed-config.json`), รหัสผ่านเข้ารหัส DPAPI
 
 ## Commands
@@ -29,6 +35,11 @@ publish/PrePack.exe --print-test-pdf test.pdf                        # เช็
 - รหัสผ่านห้ามส่งไปหน้าเว็บ (`SafeConfig()` ส่งแค่ `hasPassword`)
 - แต้มภาระงาน = ดวง × factor (`Domain/WorkFactors.cs` ↔ `workFactorFor()` ใน app.js ต้องตรงกัน); แก้ factor ต้องผ่านรหัส ตรวจใน C# เสมอ
 - print_logs เก็บ snapshot (ชื่อผู้บรรจุ, ชื่อยา, หน่วย) — แก้ master ภายหลังไม่กระทบประวัติ
+- เจ้าหน้าที่อ้างอิงด้วย `uid` (GUID) ทั้ง local, MySQL และหน้าเว็บ — id ตัวเลขของ MySQL ไม่ส่งไปหน้าเว็บ
+- การพิมพ์และการเปิดโปรแกรมห้ามรอ MySQL; งาน MySQL ทั้งหมดผ่าน SyncService (มี backoff)
+- ห้ามลบแถวใน local DB หลัง sync (เป็น backup); schema local เปลี่ยนด้วย `PRAGMA user_version` ใน LocalDb.Migrate
+- ขนาดหน้าจอใช้ WebView2 `ZoomFactor` (config `uiZoomPercent`) — ห้ามใช้ CSS `zoom` ที่ body เพราะจะกระทบการพิมพ์
+- `PREPACK_DATA_DIR` เปลี่ยนโฟลเดอร์ข้อมูล (self-test ใช้ เพื่อไม่แตะข้อมูลจริง)
 - Business rules (อายุยา, ประเภทยา, layout) อยู่ใน `Domain/` และมี unit test ใน `tests/PrePack.Tests`
 - ขนาดฉลากเป็นมิลลิเมตรทั้งระบบ: `Domain/LabelLayout.cs` ↔ `wwwroot/js/labels.js` ต้องตรงกัน
 - ข้อความจากผู้ใช้/ฐานข้อมูลต้องผ่าน `esc()` ก่อนใส่ HTML

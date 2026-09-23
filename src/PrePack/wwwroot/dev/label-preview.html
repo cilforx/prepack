@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>ตัวอย่างสติกเกอร์</title>
+<link rel="stylesheet" href="../css/labels.css">
+<style>
+  body { margin: 16px; font-family: 'Leelawadee UI', Tahoma, sans-serif; background: #eef1f4; }
+  .frame-wrap { zoom: 2.4; display: inline-block; box-shadow: 0 1px 3px rgba(0,0,0,.3); }
+  h3 { margin: 4px 0 8px; font-size: 14px; color: #444; font-weight: 500; }
+</style>
+</head>
+<body>
+<!-- Development only (not embedded in the exe): real-size sticker samples for checking the template. -->
+<h3>แผ่นเดียว 85 × 50 มม. 3×3 ดวง (ขยาย 2.4 เท่า) — ชื่อสั้น / ชื่อยาว / Lot ยาว</h3>
+<div id="out"></div>
+<script src="../js/util.js"></script>
+<script src="../js/labels.js"></script>
+<script>
+  const layout = { frameWidth: 85, frameHeight: 50, headerHeight: 8, rows: 3, cols: 3, gapX: 1, gapY: 1,
+    offsetX: 0, offsetY: 0, padding: 0.8, fontSize: 5.5, buddhistYear: true };
+  const today = '2026-09-23';
+  const samples = [
+    { drugName: 'Paracetamol 500 mg', qty: 30, lotNo: 'A12345', packer: 'นนท์' },
+    { drugName: 'Paracetamol 500 mg', qty: 30, lotNo: 'A12345', packer: 'วีรภัทร' },
+    { drugName: 'Augmentin 1 g', qty: 14, lotNo: 'A12345', packer: 'ภัทราวดี' },
+    { drugName: 'Amoxicillin/Clavulanate 1 g (Augmentin)', qty: 100, lotNo: 'B67890', packer: 'กฤติญากร' },
+    { drugName: 'Metformin 500 mg', qty: 60, lotNo: 'LOT2026091', packer: 'รัชนีวรรณ' },
+    { drugName: 'Triamcinolone 0.1% cream', qty: 5, lotNo: 'C1', packer: 'อนงค์นาฏ' },
+    { drugName: 'Ferrous fumarate', qty: 1, lotNo: 'X9', packer: 'กิตติศักดิ์' },
+    { drugName: 'Simvastatin 20 mg', qty: 30, lotNo: 'SIM2026A', packer: 'มินตรา' },
+    { drugName: 'Omeprazole 20 mg', qty: 2, lotNo: 'OM-7788', packer: 'นัฐดิษฐ์' },
+  ];
+  // One sheet where each sticker uses a different sample (buildFrames prints the same label 9 times).
+  let html = buildFrames(samples[0], layout, 9, true);
+  const box = document.createElement('div');
+  box.innerHTML = html;
+  box.querySelectorAll('.lb-cell').forEach((cell, i) => {
+    cell.innerHTML = labelCellHTML(Object.assign({ packDate: today, labelExp: addDaysISO(today, 365) }, samples[i]), layout);
+  });
+  document.getElementById('out').innerHTML = '<div class="frame-wrap">' + box.innerHTML + '</div>';
+</script>
+</body>
+</html>

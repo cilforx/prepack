@@ -1,6 +1,7 @@
 # PrePack — ระบบแบ่งบรรจุยา Pre-pack / Unit dose
 
 เว็บแอปในเครือข่ายโรงพยาบาลสำหรับห้องยา ใช้บันทึกการแบ่งบรรจุยา พิมพ์ฉลากสติกเกอร์ และสรุปภาระงานของเจ้าหน้าที่แต่ละคน
+https://drive.google.com/drive/folders/1pxsnUlRkt-MOdWc-EhEADx67OPlV25Gb?usp=sharing
 
 - **ยาเม็ด Pre-pack** — แบ่งจากกระปุก 1000 เม็ดเป็นซอง 30 / 60 / 100 … เม็ด
 - **Unit dose** — ซองละ 1–5 เม็ด
